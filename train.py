@@ -38,40 +38,35 @@ PROJECT_DIR = Path(__file__).resolve().parent
 #     "sigma_reg": 0.01,
 # }
 configs = [
-    {"model_type": "gru", "probabilistic": False, "use_temporal_head": False},
-    {"model_type": "gru", "probabilistic": False, "use_temporal_head": True},
-    {"model_type": "lstm", "probabilistic": False, "use_temporal_head": True},
+    {"model_type": "gru", "probabilistic": False},
+    {"model_type": "gru", "probabilistic": True},
+    {"model_type": "lstm", "probabilistic": False},
     {"model_type": "transformer", "probabilistic": False},
-    {"model_type": "gru", "probabilistic": True, "use_temporal_head": True},
+    {"model_type": "transformer", "probabilistic": True},
 ]
 
 TRAIN_CONFIG = {
     "seed": 42,
-    "epochs": 50,
+    "epochs": 60,
 
-    # model
-    "model_type": "gru",              # "gru" | "lstm" | "transformer"
+    "model_type": "gru",
     "probabilistic": False,
-    "hidden": 128,
+    "hidden": 256,
     "layers": 2,
-    "dropout": 0.2,
+    "dropout": 0.15,
     "horizon": 28,
-    "use_temporal_head": True,
 
-    # transformer-specific
-    "d_model": 128,
-    "n_heads": 4,
-    "ff_dim": 256,
+    "d_model": 256,
+    "n_heads": 8,
+    "ff_dim": 512,
 
-    # data
-    "batch_size": 256,
-    "seq_len": 28,
+    "batch_size": 1024,
+    "seq_len": 56,
     "store_id": "CA_3",
     "data_dir": "./data",
     "max_series": None,
-    "num_workers": 0,
+    "num_workers": 8,
 
-    # training / optimisation
     "optimiser": "adamw",
     "optimiser_params": {
         "lr": 1e-3,
@@ -84,56 +79,55 @@ TRAIN_CONFIG = {
     },
     "clip_grad_norm": 1.0,
 
-    # early stopping
-    "early_stopping_patience": 10,
-    "early_stopping_min_delta": 0.001,
+    "early_stopping_patience": 8,
+    "early_stopping_min_delta": 5e-4,
 
-    # probabilistic
-    "sigma_reg": 0.01,
+    "sigma_reg": 1e-3,
 }
 
 SEARCH = True
-USE_OPTUNA = True #DELETE before submission
+USE_OPTUNA = False #DELETE before submission
+
 
 GRU_SEARCH_SPACE = {
-    "optimiser_params.lr": (1e-4, 1e-2, "log"),
-    "optimiser_params.weight_decay": (1e-6, 1e-3, "log"),
-    "hidden": (64, 256, "uniform"),
-    "layers": (1, 4, "uniform"),
-    "dropout": (0.1, 0.4, "uniform"),
+    "optimiser_params.lr": (5e-5, 5e-3, "log"),
+    "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
+    "hidden": (128, 512, "uniform"),
+    "layers": (1, 3, "uniform"),
+    "dropout": (0.05, 0.35, "uniform"),
     "clip_grad_norm": (0.5, 2.0, "uniform"),
 }
 
 LSTM_SEARCH_SPACE = {
-    "optimiser_params.lr": (1e-4, 1e-2, "log"),
-    "optimiser_params.weight_decay": (1e-6, 1e-3, "log"),
-    "hidden": (64, 256, "uniform"),
-    "layers": (1, 4, "uniform"),
-    "dropout": (0.1, 0.4, "uniform"),
+    "optimiser_params.lr": (5e-5, 5e-3, "log"),
+    "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
+    "hidden": (128, 512, "uniform"),
+    "layers": (1, 3, "uniform"),
+    "dropout": (0.05, 0.35, "uniform"),
     "clip_grad_norm": (0.5, 2.0, "uniform"),
 }
 
 PROB_SEARCH_SPACE = {
-    "optimiser_params.lr": (1e-4, 1e-2, "log"),
-    "optimiser_params.weight_decay": (1e-6, 1e-3, "log"),
-    "hidden": (64, 256, "uniform"),
+    "optimiser_params.lr": (5e-5, 3e-3, "log"),
+    "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
+    "hidden": (128, 512, "uniform"),
     "layers": (1, 3, "uniform"),
-    "dropout": (0.1, 0.4, "uniform"),
-    "sigma_reg": (0.0, 0.05, "uniform"),
+    "dropout": (0.05, 0.35, "uniform"),
+    "sigma_reg": (1e-4, 5e-2, "log"),
     "clip_grad_norm": (0.25, 1.5, "uniform"),
 }
 
 TRANSFORMER_SEARCH_SPACE = {
-    "optimiser_params.lr": (1e-4, 5e-3, "log"),
-    "optimiser_params.weight_decay": (1e-6, 1e-3, "log"),
-    "d_model": (64, 256, "uniform"),
-    "layers": (1, 4, "uniform"),
-    "dropout": (0.1, 0.4, "uniform"),
-    "ff_dim": (128, 512, "uniform"),
+    "optimiser_params.lr": (1e-4, 3e-3, "log"),
+    "optimiser_params.weight_decay": (1e-7, 1e-2, "log"),
+    "d_model": (128, 512, "uniform"),
+    "layers": (2, 6, "uniform"),
+    "dropout": (0.05, 0.3, "uniform"),
+    "ff_dim": (256, 1024, "uniform"),
     "clip_grad_norm": (0.5, 2.0, "uniform"),
 }
 
-HYPER_PARAM_INIT_MODELS = 20
+HYPER_PARAM_INIT_MODELS = 10
 HYPER_PARAM_SEARCH_SCHEDULE = [
     {"epochs": 10,  "keep": math.ceil(HYPER_PARAM_INIT_MODELS / 2)},
     {"epochs": 10, "keep": math.ceil(HYPER_PARAM_INIT_MODELS / 4)},
@@ -284,7 +278,7 @@ def main():
 
         kwargs = get_experiment_kwargs(cfg)
         is_prob = cfg["probabilistic"]
-        head = "temp" if cfg.get("use_temporal_head") else "direct"
+        head = "direct"
         exp_name = f"{cfg['model_type']}_{head}_{'prob' if is_prob else 'det'}"
         exp = Experiment(exp_name, cfg, model_dir=get_model_dir(exp_name, PROJECT_DIR))
 
@@ -323,7 +317,9 @@ def main():
             )
             print(f"\nBest config from Optuna: {best_cfg}")
             # update config with best params
-            exp.cfg = best_cfg.copy()
+            final_cfg = cfg.copy()
+            final_cfg.update(best_cfg)
+            exp.cfg = final_cfg
             # train final model with best config
             exp.train(kwargs['builder'], kwargs['training_step'])
 
@@ -334,4 +330,3 @@ if __name__ == "__main__":
     main()
 
 
-    #free(): invalid pointer

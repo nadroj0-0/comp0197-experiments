@@ -6,69 +6,77 @@ import math
 from utils.data import N_FEATURES
 from utils.optimisation import OptimisationConfig
 
+def get_num_heads(hidden_size: int) -> int:
+    for h in [8, 4, 2, 1]:
+        if hidden_size % h == 0:
+            return h
+    return 1
+
+class ResidualForecastHead(nn.Module):
+    def __init__(self, dim: int, dropout: float):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim, dim),
+        )
+        self.norm = nn.LayerNorm(dim)
+
+    def forward(self, x):
+        return self.norm(x + self.block(x))
+
+class HorizonConditionedHead(nn.Module):
+    def __init__(self, hidden_size: int, horizon: int, dropout: float):
+        super().__init__()
+        self.horizon = horizon
+        self.horizon_emb = nn.Parameter(
+            torch.randn(horizon, hidden_size) / math.sqrt(hidden_size)
+        )
+        self.attn = nn.MultiheadAttention(
+            embed_dim=hidden_size,
+            num_heads=get_num_heads(hidden_size),
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.norm = nn.LayerNorm(hidden_size)
+        self.res = ResidualForecastHead(hidden_size, dropout)
+        self.out = nn.Linear(hidden_size, 1)
+
+    def forward(self, enc_out: torch.Tensor) -> torch.Tensor:
+        # enc_out: (B, T, H)
+        B, _, H = enc_out.shape
+        queries = self.horizon_emb.unsqueeze(0).expand(B, -1, -1)   # (B, horizon, H)
+        attn_out, _ = self.attn(query=queries, key=enc_out, value=enc_out)
+        attn_out = self.norm(attn_out + queries)
+        attn_out = self.res(attn_out)
+        attn_out = self.out(attn_out).squeeze(-1)
+        return attn_out  # (B, horizon)
 
 
 class SalesGRU(nn.Module):
-    """
-    Multi-layer GRU for deterministic sales point prediction.
-
-    Takes a sequence of historical sales (and optionally extra features)
-    and predicts the next timestep's sales as a single scalar.
-
-    Args:
-        input_size  (int): Number of features per timestep (1 if sales only).
-        hidden_size (int): Number of units in each GRU layer.
-        num_layers  (int): Number of stacked GRU layers.
-        dropout     (float): Dropout probability between GRU layers.
-    """
-    def __init__(self, input_size=N_FEATURES, hidden_size=128, num_layers=2, dropout=0.2, horizon=28,
-                 use_temporal_head=False):
+    def __init__(self, input_size=N_FEATURES, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
         super().__init__()
-        self.use_temporal_head = use_temporal_head
-        self.horizon = horizon
-        self.input_proj = nn.Linear(input_size, hidden_size)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(hidden_size),
+        )
         self.gru = nn.GRU(
             input_size=hidden_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            batch_first=True,   # input shape: (batch, seq_len, features)
-            dropout=dropout if num_layers > 1 else 0.0
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
         self.norm = nn.LayerNorm(hidden_size)
-        if self.use_temporal_head:
-            self.temporal_head = nn.GRU(
-                input_size=hidden_size,
-                hidden_size=hidden_size,
-                batch_first=True
-            )
-            self.output_layer = nn.Linear(hidden_size, 1)
-        else:
-            self.head = nn.Sequential(
-                nn.Linear(hidden_size, hidden_size),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_size, hidden_size // 2),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_size // 2, horizon)
-            )
+        self.decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
 
     def forward(self, x):
-        # x shape: (batch, seq_len, input_size)
         x = self.input_proj(x)
-        out, _ = self.gru(x)
-        out = self.norm(out)
-        # take only the final timestep's hidden state
-        last = out[:, -1, :]  # (batch, hidden)
-        if not self.use_temporal_head:
-            return self.head(last)
-        hidden_seq = last.unsqueeze(1).repeat(1, self.horizon, 1)
-        # (batch, horizon, hidden)
-        temporal_out, _ = self.temporal_head(hidden_seq)
-        # (batch, horizon, hidden)
-        out = self.output_layer(temporal_out).squeeze(-1)
-        # (batch, horizon)
-        return out
+        enc_out, _ = self.gru(x)           # (B, T, H)
+        enc_out = self.norm(enc_out)
+        return self.decoder(enc_out)
 
 
 def build_gru(cfg):
@@ -77,13 +85,13 @@ def build_gru(cfg):
     Returns (model, criterion, optimiser, training_kwargs).
     """
     from utils.common import device, rmse, mae, mape, r2
+
     model = SalesGRU(
         input_size=N_FEATURES,
-        hidden_size=int(cfg["hidden"]),
+        hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
         num_layers=int(cfg["layers"]),
         dropout=cfg["dropout"],
         horizon=int(cfg["horizon"]),
-        use_temporal_head=cfg.get("use_temporal_head", False),
     ).to(device)
     criterion = nn.MSELoss()
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -96,27 +104,13 @@ def build_gru(cfg):
 
 
 class SalesLSTM(nn.Module):
-    """
-    Multi-layer LSTM for deterministic multi-step sales forecasting.
-
-    Input  : (batch, seq_len, N_FEATURES)
-    Output : (batch, horizon)
-
-    Args
-    ----
-    input_size  : Number of features per timestep. Defaults to N_FEATURES (13).
-    hidden_size : LSTM hidden units per layer.
-    num_layers  : Number of stacked LSTM layers.
-    dropout     : Dropout probability between LSTM layers (ignored if num_layers=1).
-    horizon     : Number of future timesteps to predict.
-    """
-
-    def __init__(self,input_size:  int   = N_FEATURES,hidden_size: int   = 128,num_layers:  int   = 2,
-                 dropout:     float = 0.2,horizon:     int   = 28,use_temporal_head: bool = False):
+    def __init__(self, input_size=N_FEATURES, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
         super().__init__()
-        self.use_temporal_head = use_temporal_head
-        self.horizon = horizon
-        self.input_proj = nn.Linear(input_size, hidden_size)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(hidden_size),
+        )
         self.lstm = nn.LSTM(
             input_size=hidden_size,
             hidden_size=hidden_size,
@@ -125,39 +119,13 @@ class SalesLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,
         )
         self.norm = nn.LayerNorm(hidden_size)
-        if self.use_temporal_head:
-            self.temporal_head = nn.GRU(
-                input_size=hidden_size,
-                hidden_size=hidden_size,
-                batch_first=True
-            )
-            self.output_layer = nn.Linear(hidden_size, 1)
-        else:
-            self.head = nn.Sequential(
-                nn.Linear(hidden_size, hidden_size),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_size, hidden_size // 2),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_size // 2, horizon)
-            )
+        self.decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x : (batch, seq_len, input_size)
+    def forward(self, x):
         x = self.input_proj(x)
-        out, _ = self.lstm(x)
-        out = self.norm(out)
-        last = out[:, -1, :]  # (batch, hidden)
-        if not self.use_temporal_head:
-            return self.head(last)
-        hidden_seq = last.unsqueeze(1).repeat(1, self.horizon, 1)
-        # (batch, horizon, hidden)
-        temporal_out, _ = self.temporal_head(hidden_seq)
-        # (batch, horizon, hidden)
-        out = self.output_layer(temporal_out).squeeze(-1)
-        # (batch, horizon)
-        return out        # (batch, horizon)
+        enc_out, _ = self.lstm(x)
+        enc_out = self.norm(enc_out)
+        return self.decoder(enc_out)
 
 
 def build_lstm(cfg):
@@ -168,11 +136,10 @@ def build_lstm(cfg):
     from utils.common import device, rmse, mae, mape, r2
     model = SalesLSTM(
         input_size=N_FEATURES,
-        hidden_size=int(cfg["hidden"]),
+        hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
         num_layers=int(cfg["layers"]),
         dropout=cfg["dropout"],
         horizon=int(cfg["horizon"]),
-        use_temporal_head=cfg.get("use_temporal_head", False),
     ).to(device)
     criterion = nn.MSELoss()
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -186,7 +153,23 @@ def build_lstm(cfg):
 class ProbGRU(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout, horizon):
         super().__init__()
-        self.input_proj = nn.Linear(input_size, hidden_size)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(hidden_size),
+        )
+        self.sigma_head = nn.Sequential(
+            nn.Linear(hidden_size, 64),
+            nn.GELU(),
+            nn.Linear(64, 32),
+            nn.GELU(),
+            nn.Linear(32, 1),
+        )
+        self.mu_head = nn.Sequential(
+            nn.Linear(hidden_size, 64),
+            nn.GELU(),
+            nn.Linear(64, 1),
+        )
         self.gru = nn.GRU(
             input_size=hidden_size,
             hidden_size=hidden_size,
@@ -194,49 +177,30 @@ class ProbGRU(nn.Module):
             batch_first=True,
             dropout=dropout if num_layers > 1 else 0.0
         )
+
         self.norm = nn.LayerNorm(hidden_size)
-        self.shared = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-        self.mu_head = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_size // 2, horizon)
-        )
-        # self.alpha_head = nn.Sequential(
-        self.sigma_head = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_size // 2, horizon),
-            nn.Softplus()
-        )
+
+        self.mu_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
+
+        self.softplus = nn.Softplus()
 
     def forward(self, x):
-        # x: (batch, seq_len, features)
         x = self.input_proj(x)
-        out, _ = self.gru(x)
-        out = self.norm(out)
-        last = out[:, -1, :]
-        shared = self.shared(last)
-        mu = self.mu_head(shared)
-        sigma = self.sigma_head(shared)
-        # stability
-        sigma = torch.clamp(sigma, min=1e-3, max=10.0)
+        enc_out, _ = self.gru(x)
+        enc_out = self.norm(enc_out)
+        attn_repr = self.mu_decoder(enc_out)
+
+        mu = self.mu_head(attn_repr).squeeze(-1)
+        sigma = self.softplus(self.sigma_head(attn_repr).squeeze(-1))
+
+        sigma = torch.clamp(sigma, min=1e-3, max=5.0)
         return mu, sigma
 
 def build_prob_gru(cfg):
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = ProbGRU(
         input_size=N_FEATURES,
-        hidden_size=int(cfg["hidden"]),
+        hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
         num_layers=int(cfg["layers"]),
         dropout=cfg["dropout"],
         horizon=int(cfg["horizon"]),
@@ -254,7 +218,23 @@ def build_prob_gru(cfg):
 class ProbLSTM(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, dropout, horizon):
         super().__init__()
-        self.input_proj = nn.Linear(input_size, hidden_size)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(hidden_size),
+        )
+        self.sigma_head = nn.Sequential(
+            nn.Linear(hidden_size, 64),
+            nn.GELU(),
+            nn.Linear(64, 32),
+            nn.GELU(),
+            nn.Linear(32, 1),
+        )
+        self.mu_head = nn.Sequential(
+            nn.Linear(hidden_size, 64),
+            nn.GELU(),
+            nn.Linear(64, 1),
+        )
         self.lstm = nn.LSTM(
             input_size=hidden_size,
             hidden_size=hidden_size,
@@ -263,40 +243,21 @@ class ProbLSTM(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0
         )
         self.norm = nn.LayerNorm(hidden_size)
-        self.shared = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-        )
-        self.mu_head = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_size // 2, horizon)
-        )
-        self.sigma_head = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_size // 2, horizon),
-            nn.Softplus()
-        )
+
+        self.mu_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
+
+        self.softplus = nn.Softplus()
 
     def forward(self, x):
-        # x: (batch, seq_len, features)
         x = self.input_proj(x)
-        out, _ = self.lstm(x)
-        out = self.norm(out)
-        last = out[:, -1, :]
-        shared = self.shared(last)
-        mu = self.mu_head(shared)
-        sigma = self.sigma_head(shared)
-        # stability
-        sigma = torch.clamp(sigma, min=1e-3, max=10.0)
+        enc_out, _ = self.lstm(x)
+        enc_out = self.norm(enc_out)
+        attn_repr = self.mu_decoder(enc_out)
+
+        mu = self.mu_head(attn_repr).squeeze(-1)
+        sigma = self.softplus(self.sigma_head(attn_repr).squeeze(-1))
+
+        sigma = torch.clamp(sigma, min=1e-3, max=5.0)
         return mu, sigma
 
 
@@ -304,7 +265,7 @@ def build_prob_lstm(cfg):
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = ProbLSTM(
         input_size=N_FEATURES,
-        hidden_size=int(cfg["hidden"]),
+        hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
         num_layers=int(cfg["layers"]),
         dropout=cfg["dropout"],
         horizon=int(cfg["horizon"]),
@@ -350,7 +311,7 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.attn = nn.MultiheadAttention(
             embed_dim=d_model,
-            num_heads=n_heads,
+            num_heads=get_num_heads(d_model),
             dropout=dropout,
             batch_first=True,
         )
@@ -380,43 +341,30 @@ class TransformerBlock(nn.Module):
         return x, attn_weights
 
 class SalesTransformer(nn.Module):
-    def __init__(
-        self,
-        input_size: int,
-        d_model: int = 128,
-        n_heads: int = 4,
-        ff_dim: int = 256,
-        n_layers: int = 2,
-        dropout: float = 0.1,
-        horizon: int = 28,
-    ):
+    def __init__(self, input_size, d_model=128, n_heads=4, ff_dim=256, n_layers=2, dropout=0.1, horizon=28):
         super().__init__()
-        self.input_proj = nn.Linear(input_size, d_model)
-        self.pos_enc = PositionalEncoding(d_model=d_model, max_len=64, dropout=dropout)
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, d_model),
+            nn.GELU(),
+            nn.LayerNorm(d_model),
+        )
+        self.pos_enc = PositionalEncoding(d_model=d_model, max_len=256, dropout=dropout)
         self.blocks = nn.ModuleList([
-            TransformerBlock(
-                d_model=d_model,
-                n_heads=n_heads,
-                ff_dim=ff_dim,
-                dropout=dropout,
-            )
+            TransformerBlock(d_model=d_model, n_heads=n_heads, ff_dim=ff_dim, dropout=dropout)
             for _ in range(n_layers)
         ])
-        self.head = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, horizon),
-        )
+        self.norm = nn.LayerNorm(d_model)
+        self.decoder = HorizonConditionedHead(d_model, horizon, dropout)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (batch, seq_len, input_size)
+    def forward(self, x):
         x = self.input_proj(x)
         x = self.pos_enc(x)
         for block in self.blocks:
             x, _ = block(x)
-        x = x.mean(dim=1)
-        return self.head(x)
+        x = self.norm(x)
+        x = self.dropout(x)
+        return self.decoder(x)
 
 def build_transformer(cfg):
     """
@@ -426,7 +374,7 @@ def build_transformer(cfg):
     from utils.common import device, rmse, mae, mape, r2
     model = SalesTransformer(
         input_size=N_FEATURES,
-        d_model=int(cfg.get("d_model", 128)),
+        d_model = max(8, (int(cfg.get("d_model", 128)) // 8) * 8),
         n_heads=int(cfg.get("n_heads", 4)),
         ff_dim=int(cfg.get("ff_dim", 256)),
         n_layers=int(cfg.get("layers", 2)),
@@ -444,56 +392,50 @@ def build_transformer(cfg):
 
 
 class ProbSalesTransformer(nn.Module):
-    def __init__(
-        self,
-        input_size: int,
-        d_model: int = 128,
-        n_heads: int = 4,
-        ff_dim: int = 256,
-        n_layers: int = 2,
-        dropout: float = 0.1,
-        horizon: int = 28,
-    ):
+    def __init__(self, input_size, d_model=128, n_heads=4, ff_dim=256, n_layers=2, dropout=0.1, horizon=28):
         super().__init__()
-        self.input_proj = nn.Linear(input_size, d_model)
-        self.pos_enc = PositionalEncoding(d_model=d_model, max_len=64, dropout=dropout)
-        self.blocks = nn.ModuleList([
-            TransformerBlock(
-                d_model=d_model,
-                n_heads=n_heads,
-                ff_dim=ff_dim,
-                dropout=dropout,
-            )
-            for _ in range(n_layers)
-        ])
-        self.shared = nn.Sequential(
-            nn.Linear(d_model, d_model),
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, d_model),
             nn.GELU(),
-            nn.Dropout(dropout),
+            nn.LayerNorm(d_model),
+        )
+        self.pos_enc = PositionalEncoding(d_model=d_model, max_len=256, dropout=dropout)
+        self.sigma_head = nn.Sequential(
+            nn.Linear(d_model, 64),
+            nn.GELU(),
+            nn.Linear(64, 32),
+            nn.GELU(),
+            nn.Linear(32, 1),
         )
         self.mu_head = nn.Sequential(
-            nn.Linear(d_model, d_model),
+            nn.Linear(d_model, 64),
             nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, horizon),
+            nn.Linear(64, 1),
         )
-        self.sigma_head = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, horizon),
-            nn.Softplus(),
-        )
+        self.blocks = nn.ModuleList([
+            TransformerBlock(d_model=d_model, n_heads=n_heads, ff_dim=ff_dim, dropout=dropout)
+            for _ in range(n_layers)
+        ])
+        self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        self.mu_decoder = HorizonConditionedHead(d_model, horizon, dropout)
+
+        self.softplus = nn.Softplus()
+
+    def forward(self, x):
         x = self.input_proj(x)
         x = self.pos_enc(x)
+
         for block in self.blocks:
             x, _ = block(x)
-        x = x.mean(dim=1)
-        shared = self.shared(x)
-        mu = self.mu_head(shared)
-        sigma = torch.clamp(self.sigma_head(shared), min=1e-3, max=10.0)
+
+        enc_out = self.norm(x)
+        attn_repr = self.mu_decoder(enc_out)
+
+        mu = self.mu_head(attn_repr).squeeze(-1)
+        sigma = self.softplus(self.sigma_head(attn_repr).squeeze(-1))
+
+        sigma = torch.clamp(sigma, min=1e-3, max=5.0)
         return mu, sigma
 
 
@@ -505,7 +447,7 @@ def build_prob_transformer(cfg):
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = ProbSalesTransformer(
         input_size=N_FEATURES,
-        d_model=int(cfg.get("d_model", 128)),
+        d_model = max(8, (int(cfg.get("d_model", 128)) // 8) * 8),
         n_heads=int(cfg.get("n_heads", 4)),
         ff_dim=int(cfg.get("ff_dim", 256)),
         n_layers=int(cfg.get("layers", 2)),
