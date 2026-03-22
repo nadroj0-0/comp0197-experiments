@@ -122,7 +122,7 @@ def train_model(epochs, train_loader, val_loader, model, criterion, optim_method
             early_stopping_patience is not None and early_stopping_patience > 0
     )
     early_stopper = EarlyStopping(early_stopping_patience,min_delta=early_stopping_min_delta) if early_stopping_enabled else None
-    use_amp = device.type == "cuda"
+    use_amp = device.type == "cuda" and not kwargs.get("disable_amp", False)
     scaler = torch.cuda.amp.GradScaler() if use_amp else None
     for epoch in range(epochs):
         model.train()
@@ -450,6 +450,7 @@ def gaussian_nll_loss(mu, sigma, targets, sigma_reg=0.0):
     targets : log1p transformed sales
     sigma_reg: penalty on mean sigma to discourage variance collapse. — must be > 0
     """
+    mu = torch.nan_to_num(mu, nan=0.0, posinf=10.0, neginf=-10.0)
     sigma = sigma.clamp(min=1e-6, max=10.0)
     dist  = torch.distributions.Normal(mu, sigma)
     nll = -dist.log_prob(targets).mean()

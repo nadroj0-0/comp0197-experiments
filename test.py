@@ -16,29 +16,19 @@ from utils.experiment import evaluate_model
 # CONFIG (MUST MATCH TRAINING)
 # -----------------------------------------------------------------------------
 
-CONFIG = {
-    "seed": 42,
-    "hidden": 256,
-    "layers": 2,
-    "dropout": 0.15,
-    "horizon": 28,
+# replace the CONFIG block and model loading section with this
 
-    "batch_size": 1024,
-    "seq_len": 56,
-    "store_id": "CA_3",
-    "data_dir": "./data",
-    "max_series": None,
-    "num_workers": 4,
-
-    "optimiser": "adamw",
-    "optimiser_params": {
-        "lr": 1e-3,
-        "weight_decay": 1e-4,
-    },
-}
+import json
 
 MODEL_NAME = "gru_direct_det"
-MODEL_PATH = Path("./models") / MODEL_NAME / f"{MODEL_NAME}_model.pt"
+MODEL_DIR  = Path("./models") / MODEL_NAME
+MODEL_PATH = MODEL_DIR / f"{MODEL_NAME}_model.pt"
+HIST_PATH  = MODEL_DIR / f"{MODEL_NAME}_train_history.json"
+
+# load the config that was actually used for training
+with open(HIST_PATH) as f:
+    saved = json.load(f)
+CONFIG = saved["config"]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -89,14 +79,8 @@ def main():
         batch_size=CONFIG["batch_size"],
         store_id=CONFIG["store_id"],
         max_series=CONFIG["max_series"],
-        num_workers=CONFIG["num_workers"],
+        num_workers=0,
         seed=CONFIG["seed"],
-    )
-
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=CONFIG["batch_size"],
-        shuffle=False
     )
 
     # -------------------------------------------------------------------------
@@ -117,7 +101,7 @@ def main():
     print("\n[3/4] Running inference...")
 
     _, _, preds, targets = evaluate_model(
-        test_loader,
+        test_dataset,
         model,
         criterion=torch.nn.MSELoss(),
         training_step=gru_step
@@ -125,6 +109,14 @@ def main():
 
     preds = preds.numpy()
     targets = targets.numpy()
+
+    test_rmse = np.sqrt(((preds - targets) ** 2).mean())
+    test_mae = np.abs(preds - targets).mean()
+    test_r2 = 1 - ((targets - preds) ** 2).sum() / ((targets - targets.mean()) ** 2).sum()
+    print(f"\nTest metrics (normalised):")
+    print(f"  RMSE : {test_rmse:.4f}")
+    print(f"  MAE  : {test_mae:.4f}")
+    print(f"  R²   : {test_r2:.4f}")
 
     print(f"Pred shape: {preds.shape}")
     print(f"Target shape: {targets.shape}")
@@ -137,24 +129,19 @@ def main():
     output_dir = Path("./plots")
     output_dir.mkdir(exist_ok=True)
 
-    NUM_PLOTS = 5
+    rmse_per_sample = np.sqrt(((preds - targets) ** 2).mean(axis=1))
+    sorted_idx = np.argsort(rmse_per_sample)
+    median_start = len(sorted_idx) // 2 - 2
+    plot_indices = sorted_idx[median_start:median_start + 5]
 
-    for i in range(NUM_PLOTS):
-        pred = preds[i]
-        true = targets[i]
-
-        # 🔥 CRITICAL: denormalise
-        pred = denormalise(pred, stats)
-        true = denormalise(true, stats)
-
+    for i, idx in enumerate(plot_indices):
+        pred = denormalise(preds[idx], stats)
+        true = denormalise(targets[idx], stats)
+        pred = np.clip(pred, 0, 500)
+        true = np.clip(true, 0, 500)
         save_path = output_dir / f"{MODEL_NAME}_sample_{i}.png"
-
-        plot_forecast(
-            pred,
-            true,
-            save_path=save_path,
-            title=f"{MODEL_NAME} | Sample {i}"
-        )
+        plot_forecast(pred, true, save_path=save_path,
+                      title=f"{MODEL_NAME} | Sample {i} (RMSE={rmse_per_sample[idx]:.2f})")
 
     print("\n✅ Done — plots saved in ./plots/")
 

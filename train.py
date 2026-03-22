@@ -38,11 +38,11 @@ PROJECT_DIR = Path(__file__).resolve().parent
 #     "sigma_reg": 0.01,
 # }
 configs = [
-    {"model_type": "gru", "probabilistic": False},
-    {"model_type": "gru", "probabilistic": True},
-    {"model_type": "lstm", "probabilistic": False},
-    {"model_type": "transformer", "probabilistic": False},
-    {"model_type": "transformer", "probabilistic": True},
+    # {"model_type": "gru", "probabilistic": False},
+    # {"model_type": "gru", "probabilistic": True},
+    # {"model_type": "lstm", "probabilistic": False},
+    # {"model_type": "transformer", "probabilistic": False},
+    # {"model_type": "transformer", "probabilistic": True},
     {"model_type": "gru_nb", "probabilistic": True},
 ]
 
@@ -109,7 +109,7 @@ LSTM_SEARCH_SPACE = {
 }
 
 PROB_SEARCH_SPACE = {
-    "optimiser_params.lr": (5e-5, 3e-3, "log"),
+    "optimiser_params.lr": (5e-5, 1e-3, "log"),  # was 3e-3
     "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
     "hidden": (128, 512, "uniform"),
     "layers": (1, 3, "uniform"),

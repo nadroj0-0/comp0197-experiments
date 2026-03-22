@@ -196,6 +196,7 @@ def build_prob_gru(cfg):
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
     training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
     training_kwargs.setdefault("clip_grad_norm", 0.5)
+    training_kwargs["disable_amp"] = True
     training_kwargs["extra_metrics"] = {"val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2}
     training_kwargs.setdefault("sigma_reg", cfg.get("sigma_reg", 0.0))
     return model, criterion, optimiser, training_kwargs
@@ -244,14 +245,11 @@ def build_prob_gru_nb(cfg):
         dropout=cfg["dropout"],
         horizon=int(cfg["horizon"]),
     ).to(device)
-
     criterion = nb_nll_loss
-
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
     training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
-
     training_kwargs.setdefault("clip_grad_norm", 0.5)
-
+    training_kwargs["disable_amp"] = True
     training_kwargs["extra_metrics"] = {
         "val_rmse": rmse,
         "val_mae": mae,
@@ -307,6 +305,7 @@ def build_prob_lstm(cfg):
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
     training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
     training_kwargs.setdefault("clip_grad_norm", 0.5)
+    training_kwargs["disable_amp"] = True
     training_kwargs["extra_metrics"] = {"val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2}
     training_kwargs.setdefault("sigma_reg", cfg.get("sigma_reg", 0.0))
     return model, criterion, optimiser, training_kwargs
@@ -418,6 +417,7 @@ def build_transformer(cfg):
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
     training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
     training_kwargs.setdefault("clip_grad_norm", 1.0)
+    training_kwargs["disable_amp"] = True
     training_kwargs["extra_metrics"] = {"val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2}
     return model, criterion, optimiser, training_kwargs
 
