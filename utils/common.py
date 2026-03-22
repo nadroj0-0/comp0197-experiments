@@ -94,7 +94,7 @@ def evaluate_model(data_loader, model, criterion, training_step=None):
             if training_step is not None:
                 loss, outputs = training_step(model, inputs, labels, criterion)
             else:
-                preds = model(inputs)
+                outputs = model(inputs)
                 loss = criterion(outputs, labels)
             # outputs = model(inputs)
             # loss = criterion(outputs, labels)

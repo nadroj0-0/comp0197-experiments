@@ -10,8 +10,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from utils.experiment import *
 from utils.network import (build_gru, build_lstm, build_prob_gru, build_prob_lstm, build_transformer,
-                           build_prob_transformer)
-from utils.training_strategies import gru_step, prob_gru_step
+                           build_prob_transformer, build_prob_gru_nb)
+from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
 from utils.data import build_dataloaders
 
 import argparse #for debuggin remove later before submission
@@ -43,6 +43,7 @@ configs = [
     {"model_type": "lstm", "probabilistic": False},
     {"model_type": "transformer", "probabilistic": False},
     {"model_type": "transformer", "probabilistic": True},
+    {"model_type": "gru_nb", "probabilistic": True},
 ]
 
 TRAIN_CONFIG = {
@@ -184,7 +185,12 @@ def get_experiment_kwargs(cfg):
             training_step=prob_gru_step if cfg["probabilistic"] else gru_step,
             search_space=TRANSFORMER_SEARCH_SPACE if SEARCH else None,
         )
-
+    elif cfg["model_type"] == "gru_nb":
+        return dict(
+            builder=build_prob_gru_nb,
+            training_step=prob_nb_step,
+            search_space=PROB_SEARCH_SPACE if SEARCH else None,
+        )
     else:
         raise ValueError("Unknown model_type")
 
@@ -268,8 +274,8 @@ def main():
     # load data ONCE
     print("\n[main] Loading data once for all experiments...")
     train_loader_det, val_loader_det, test_loader_det, stats_det = build_dataloaders(**data_kwargs, zscore_target=True)
-    train_loader_prob, val_loader_prob, test_loader_prob, stats_prob = build_dataloaders(**data_kwargs,
-                                                                                         zscore_target=False)
+    train_loader_gauss, val_loader_gauss, test_loader_gauss, stats_gauss = build_dataloaders(**data_kwargs,zscore_target=False)
+    train_loader_nb, val_loader_nb, test_loader_nb, stats_nb = build_dataloaders(**data_kwargs,zscore_target=False)
     print("[main] Data loaded. Starting experiments.\n")
 
     for override in configs:
@@ -283,11 +289,16 @@ def main():
         exp = Experiment(exp_name, cfg, model_dir=get_model_dir(exp_name, PROJECT_DIR))
 
         # inject correct loaders
-        if is_prob:
-            exp.train_loader = train_loader_prob
-            exp.val_loader = val_loader_prob
-            exp.test_dataset = test_loader_prob
-            exp.stats = stats_prob
+        if cfg["model_type"] == "gru_nb":
+            exp.train_loader = train_loader_nb
+            exp.val_loader = val_loader_nb
+            exp.test_dataset = test_loader_nb
+            exp.stats = stats_nb
+        elif is_prob:
+            exp.train_loader = train_loader_gauss
+            exp.val_loader = val_loader_gauss
+            exp.test_dataset = test_loader_gauss
+            exp.stats = stats_gauss
         else:
             exp.train_loader = train_loader_det
             exp.val_loader = val_loader_det

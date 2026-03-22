@@ -19,7 +19,7 @@ from torch.utils.data import Dataset, DataLoader
 #     "roll_mean_7", "roll_mean_28",
 # ]
 FEATURE_COLS = [
-    "sales",
+    #"sales",
     "sell_price",
     "wday_sin", "wday_cos",
     "month_sin", "month_cos",
@@ -304,6 +304,58 @@ def normalise(
 
     return train_df, val_df, test_df, stats
 
+def fit_normalisation_stats(
+    train_df: pd.DataFrame,
+    zscore_target: bool = True,
+) -> dict:
+    """
+    Fit normalisation stats on TRAIN rows only.
+    """
+    continuous = [
+        "sell_price", "lag_7", "lag_28",
+        "roll_mean_7", "roll_mean_28", "sales",
+    ]
+    stats = {}
+    tmp = train_df.copy()
+    for col in continuous:
+        tmp[col] = np.log1p(tmp[col].clip(lower=0))
+        mean = float(tmp[col].mean())
+        std = float(tmp[col].std()) + 1e-8
+        stats[col] = {
+            "mean": mean,
+            "std": std,
+            "log1p": True,
+        }
+    stats["sales"]["zscore"] = bool(zscore_target)
+    return stats
+
+
+def apply_normalisation(
+    df: pd.DataFrame,
+    stats: dict,
+    zscore_target: bool = True,
+) -> pd.DataFrame:
+    """
+    Apply previously fitted TRAIN stats to any dataframe.
+    """
+    out = df.copy()
+    continuous = [
+        "sell_price", "lag_7", "lag_28",
+        "roll_mean_7", "roll_mean_28", "sales",
+    ]
+    for col in continuous:
+        if col != "sales" and stats[col].get("log1p", False):
+            out[col] = np.log1p(out[col].clip(lower=0))
+
+        if col == "sales":
+            if zscore_target:
+                out[col] = (out[col] - stats[col]["mean"]) / stats[col]["std"]
+            else:
+                continue  # keep raw counts for NB
+            continue
+        out[col] = (out[col] - stats[col]["mean"]) / stats[col]["std"]
+    return out
+
 
 def denormalise(preds: np.ndarray, stats: dict, col: str = "sales") -> np.ndarray:
     """Reverse z-score normalisation for `col` (default: 'sales')."""
@@ -401,6 +453,81 @@ class M5Dataset(Dataset):
         return self.datasets[d_i][s_i]
 
 
+class WindowedM5Dataset(Dataset):
+    """
+    Window-first dataset built from the FULL per-series dataframe.
+
+    Each sample is assigned to train / val / test according to the
+    date of the first target timestep (or equivalently the target block).
+    """
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        seq_len: int,
+        horizon: int,
+        split: str,
+        val_start_date,
+        test_start_date,
+        max_series: int = None,
+    ):
+        self.seq_len = seq_len
+        self.horizon = horizon
+        self.split = split
+        self.samples = []
+        self.series_data = {}
+        grouped = df.groupby("id")
+        series_ids = list(grouped.groups.keys())
+        if max_series is not None:
+            series_ids = series_ids[:int(max_series)]
+        for sid in series_ids:
+            sub = grouped.get_group(sid).sort_values("date").reset_index(drop=True)
+            self.series_data[sid] = {
+                "features": torch.from_numpy(sub[FEATURE_COLS].values.astype(np.float32)),
+                "targets": torch.from_numpy(sub[TARGET_COL].values.astype(np.float32)),
+                "dates": sub["date"].values.astype("datetime64[ns]")
+            }
+            features = self.series_data[sid]["features"]
+            targets = self.series_data[sid]["targets"]
+            dates = self.series_data[sid]["dates"]
+            n = len(sub) - seq_len - horizon + 1
+            if n <= 0:
+                continue
+            for i in range(n):
+                x_start = i
+                x_end = i + seq_len
+                y_start = x_end
+                y_end = x_end + horizon
+                target_start_date = dates[y_start]
+                target_end_date = dates[y_end - 1]
+                # assign split using the TARGET block
+                if split == "train":
+                    # all target dates must lie before validation starts
+                    if target_end_date < val_start_date:
+                        self.samples.append((sid, x_start))
+                elif split == "val":
+                    # target block starts in val region and ends before test starts
+                    if target_start_date >= val_start_date and target_end_date < test_start_date:
+                        self.samples.append((sid, x_start))
+                elif split == "test":
+                    # target block starts in test region
+                    if target_start_date >= test_start_date:
+                        self.samples.append((sid, x_start))
+                else:
+                    raise ValueError(f"Unknown split: {split}")
+        print(f"[data] {split}: {len(self.samples):,} windows")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        sid, i = self.samples[idx]
+        sub = self.series_data[sid]
+        x = sub["features"][i: i + self.seq_len]
+        y = sub["targets"][i + self.seq_len: i + self.seq_len + self.horizon]
+        return x, y
+
+
 
 def set_seed(seed=None):
     """
@@ -432,7 +559,7 @@ def init_seed(cfg):
     return generator
 
 
-def build_dataloaders(
+def build_dataloaders_old(
     data_dir:    str,
     seq_len:     int = 28,
     horizon:     int = 28,
@@ -500,6 +627,72 @@ def build_dataloaders(
     print(f"\n[data] Input  : (seq_len={seq_len}, n_features={N_FEATURES})")
     print(f"[data] Output : (horizon={horizon},)")
     print(f"[data] Features: {FEATURE_COLS}\n")
+
+    return train_loader, val_loader, test_loader, stats
+
+def build_dataloaders(data_dir: str, seq_len: int = 28, horizon: int = 28, batch_size: int = 256, store_id: str = None,
+                      max_series: int = None, num_workers: int = 2, seed: int = 42, top_k_items: int = None,
+                      zscore_target: bool = True) -> tuple:
+    """
+    Robust window-first split pipeline:
+    1) build full featured dataframe
+    2) get calendar boundaries
+    3) fit stats on train rows only
+    4) normalise full dataframe with train stats
+    5) build windows from full series
+    6) assign each window to train / val / test by target dates
+    """
+    generator, _ = set_seed(seed)
+
+    sales_df, calendar_df, prices_df = load_or_download_m5(data_dir)
+
+    if store_id is not None:
+        sales_df = sales_df[sales_df["store_id"] == store_id].reset_index(drop=True)
+        print(f"[data] Filtered to {store_id}: {len(sales_df)} series")
+
+    if top_k_items is not None:
+        sales_df = trim_data(sales_df, top_k_items)
+
+    long_df = melt_sales(sales_df)
+    merged = merge_calendar(long_df, calendar_df)
+    merged = merge_prices(merged, prices_df)
+    featured = engineer_features(merged)
+
+    # Use split_data only to derive date boundaries and train rows for fitting stats
+    train_df_raw, val_df_raw, test_df_raw = split_data(featured, val_days=56, test_days=28)
+    val_start_date = val_df_raw["date"].values.astype("datetime64[ns]")[0]
+    test_start_date = test_df_raw["date"].values.astype("datetime64[ns]")[0]
+
+    print(type(val_start_date), val_start_date.dtype)
+
+    # Fit stats on TRAIN ROWS ONLY
+    stats = fit_normalisation_stats(train_df_raw, zscore_target=zscore_target)
+
+    # Apply stats to FULL dataframe
+    featured_norm = apply_normalisation(featured, stats, zscore_target=zscore_target)
+
+    # Build window-first datasets
+    train_ds = WindowedM5Dataset(featured_norm, seq_len=seq_len, horizon=horizon, split="train", val_start_date=val_start_date,
+                                 test_start_date=test_start_date, max_series=max_series)
+    val_ds = WindowedM5Dataset(featured_norm, seq_len=seq_len, horizon=horizon, split="val", val_start_date=val_start_date,
+                               test_start_date=test_start_date, max_series=max_series)
+    test_ds = WindowedM5Dataset(featured_norm, seq_len=seq_len, horizon=horizon, split="test", val_start_date=val_start_date,
+                                test_start_date=test_start_date, max_series=max_series)
+    _pin = torch.cuda.is_available()
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers, generator=generator,pin_memory=_pin)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=_pin)
+    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=_pin)
+
+    print(f"\n[data] Input  : (seq_len={seq_len}, n_features={N_FEATURES})")
+    print(f"[data] Output : (horizon={horizon},)")
+    print(f"[data] Features: {FEATURE_COLS}")
+    print(f"[data] Train batches: {len(train_loader)}")
+    print(f"[data] Val batches  : {len(val_loader)}")
+    print(f"[data] Test batches : {len(test_loader)}\n")
+
+    print(f"[DEBUG] Train windows: {len(train_loader.dataset):,}")
+    print(f"[DEBUG] Val windows  : {len(val_loader.dataset):,}")
+    print(f"[DEBUG] Test windows : {len(test_loader.dataset):,}")
 
     return train_loader, val_loader, test_loader, stats
 

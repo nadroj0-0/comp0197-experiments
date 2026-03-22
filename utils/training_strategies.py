@@ -26,3 +26,8 @@ def prob_gru_step(model, inputs, labels, criterion, **kwargs):
     return loss, mu
 
 prob_gru_step.valid_train_accuracy = False
+
+def prob_nb_step(model, inputs, labels, criterion, **kwargs):
+    mu, alpha = model(inputs)
+    loss = criterion(mu, alpha, labels)
+    return loss, mu

@@ -158,18 +158,7 @@ class ProbGRU(nn.Module):
             nn.GELU(),
             nn.LayerNorm(hidden_size),
         )
-        self.sigma_head = nn.Sequential(
-            nn.Linear(hidden_size, 64),
-            nn.GELU(),
-            nn.Linear(64, 32),
-            nn.GELU(),
-            nn.Linear(32, 1),
-        )
-        self.mu_head = nn.Sequential(
-            nn.Linear(hidden_size, 64),
-            nn.GELU(),
-            nn.Linear(64, 1),
-        )
+
         self.gru = nn.GRU(
             input_size=hidden_size,
             hidden_size=hidden_size,
@@ -181,6 +170,7 @@ class ProbGRU(nn.Module):
         self.norm = nn.LayerNorm(hidden_size)
 
         self.mu_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
+        self.sigma_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
 
         self.softplus = nn.Softplus()
 
@@ -188,11 +178,8 @@ class ProbGRU(nn.Module):
         x = self.input_proj(x)
         enc_out, _ = self.gru(x)
         enc_out = self.norm(enc_out)
-        attn_repr = self.mu_decoder(enc_out)
-
-        mu = self.mu_head(attn_repr).squeeze(-1)
-        sigma = self.softplus(self.sigma_head(attn_repr).squeeze(-1))
-
+        mu = self.mu_decoder(enc_out)
+        sigma = self.softplus(self.sigma_decoder(enc_out))
         sigma = torch.clamp(sigma, min=1e-3, max=5.0)
         return mu, sigma
 
@@ -213,6 +200,67 @@ def build_prob_gru(cfg):
     training_kwargs.setdefault("sigma_reg", cfg.get("sigma_reg", 0.0))
     return model, criterion, optimiser, training_kwargs
 
+class ProbGRU_NB(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, dropout, horizon):
+        super().__init__()
+
+        self.input_proj = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.GELU(),
+            nn.LayerNorm(hidden_size),
+        )
+
+        self.gru = nn.GRU(
+            input_size=hidden_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
+        )
+
+        self.norm = nn.LayerNorm(hidden_size)
+
+        self.mu_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
+        self.alpha_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
+
+        self.softplus = nn.Softplus()
+
+    def forward(self, x):
+        x = self.input_proj(x)
+        enc_out, _ = self.gru(x)
+        enc_out = self.norm(enc_out)
+
+        mu = self.softplus(self.mu_decoder(enc_out)) + 1e-6
+        alpha = self.softplus(self.alpha_decoder(enc_out)) + 1e-6
+        return mu, alpha
+
+def build_prob_gru_nb(cfg):
+    from utils.common import device, rmse, mae, mape, r2, nb_nll_loss
+
+    model = ProbGRU_NB(
+        input_size=N_FEATURES,
+        hidden_size=max(8, (int(cfg["hidden"]) // 8) * 8),
+        num_layers=int(cfg["layers"]),
+        dropout=cfg["dropout"],
+        horizon=int(cfg["horizon"]),
+    ).to(device)
+
+    criterion = nb_nll_loss
+
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+
+    training_kwargs.setdefault("clip_grad_norm", 0.5)
+
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse,
+        "val_mae": mae,
+        "val_mape": mape,
+        "val_r2": r2,
+    }
+
+    return model, criterion, optimiser, training_kwargs
+
 
 
 class ProbLSTM(nn.Module):
@@ -222,18 +270,6 @@ class ProbLSTM(nn.Module):
             nn.Linear(input_size, hidden_size),
             nn.GELU(),
             nn.LayerNorm(hidden_size),
-        )
-        self.sigma_head = nn.Sequential(
-            nn.Linear(hidden_size, 64),
-            nn.GELU(),
-            nn.Linear(64, 32),
-            nn.GELU(),
-            nn.Linear(32, 1),
-        )
-        self.mu_head = nn.Sequential(
-            nn.Linear(hidden_size, 64),
-            nn.GELU(),
-            nn.Linear(64, 1),
         )
         self.lstm = nn.LSTM(
             input_size=hidden_size,
@@ -245,18 +281,15 @@ class ProbLSTM(nn.Module):
         self.norm = nn.LayerNorm(hidden_size)
 
         self.mu_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
-
+        self.sigma_decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
         self.softplus = nn.Softplus()
 
     def forward(self, x):
         x = self.input_proj(x)
         enc_out, _ = self.lstm(x)
         enc_out = self.norm(enc_out)
-        attn_repr = self.mu_decoder(enc_out)
-
-        mu = self.mu_head(attn_repr).squeeze(-1)
-        sigma = self.softplus(self.sigma_head(attn_repr).squeeze(-1))
-
+        mu = self.mu_decoder(enc_out)
+        sigma = self.softplus(self.sigma_decoder(enc_out))
         sigma = torch.clamp(sigma, min=1e-3, max=5.0)
         return mu, sigma
 
@@ -400,18 +433,6 @@ class ProbSalesTransformer(nn.Module):
             nn.LayerNorm(d_model),
         )
         self.pos_enc = PositionalEncoding(d_model=d_model, max_len=256, dropout=dropout)
-        self.sigma_head = nn.Sequential(
-            nn.Linear(d_model, 64),
-            nn.GELU(),
-            nn.Linear(64, 32),
-            nn.GELU(),
-            nn.Linear(32, 1),
-        )
-        self.mu_head = nn.Sequential(
-            nn.Linear(d_model, 64),
-            nn.GELU(),
-            nn.Linear(64, 1),
-        )
         self.blocks = nn.ModuleList([
             TransformerBlock(d_model=d_model, n_heads=n_heads, ff_dim=ff_dim, dropout=dropout)
             for _ in range(n_layers)
@@ -419,6 +440,7 @@ class ProbSalesTransformer(nn.Module):
         self.norm = nn.LayerNorm(d_model)
 
         self.mu_decoder = HorizonConditionedHead(d_model, horizon, dropout)
+        self.sigma_decoder = HorizonConditionedHead(d_model, horizon, dropout)
 
         self.softplus = nn.Softplus()
 
@@ -430,11 +452,8 @@ class ProbSalesTransformer(nn.Module):
             x, _ = block(x)
 
         enc_out = self.norm(x)
-        attn_repr = self.mu_decoder(enc_out)
-
-        mu = self.mu_head(attn_repr).squeeze(-1)
-        sigma = self.softplus(self.sigma_head(attn_repr).squeeze(-1))
-
+        mu = self.mu_decoder(enc_out)
+        sigma = self.softplus(self.sigma_decoder(enc_out))
         sigma = torch.clamp(sigma, min=1e-3, max=5.0)
         return mu, sigma
 
