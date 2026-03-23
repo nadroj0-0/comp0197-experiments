@@ -31,3 +31,5 @@ def prob_nb_step(model, inputs, labels, criterion, **kwargs):
     mu, alpha = model(inputs)
     loss = criterion(mu, alpha, labels)
     return loss, mu
+
+prob_nb_step.valid_train_accuracy = False
