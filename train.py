@@ -275,7 +275,7 @@ def main():
         exp      = Experiment(exp_name, cfg, model_dir=get_model_dir(exp_name, PROJECT_DIR))
 
         # Inject correct loaders — same routing logic as V2
-        if cfg["model_type"] == "gru_nb":
+        if cfg["model_type"] in ("gru_nb", "baseline_gru_nb"):
             exp.train_loader = train_loader_nb
             exp.val_loader   = val_loader_nb
             exp.test_dataset = test_loader_nb
