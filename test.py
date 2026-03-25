@@ -274,7 +274,8 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
         print(f"  [SKIP] {model_name} — no config in history JSON")
         return None
 
-    autoregressive = cfg.get("autoregressive", False)
+    autoregressive = cfg.get("autoregressive", True)
+    print(f"  autoregressive flag: {autoregressive}")
     horizon        = cfg.get("horizon", 28)
     seq_len        = cfg.get("seq_len",  28)
     use_normalise  = cfg.get("use_normalise", False)
