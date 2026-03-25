@@ -1,148 +1,149 @@
 # =============================================================================
-# train.py  —  Deterministic GRU / LSTM baselines for M5 sales forecasting
+# train.py  —  M5 Sales Forecasting — V3
 # COMP0197 Applied Deep Learning
+# GenAI Note: Scaffolded with Claude (Anthropic). Verified by authors.
 # =============================================================================
-
 
 import sys
 import math
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 from utils.experiment import *
-from utils.network import (build_gru, build_lstm, build_prob_gru, build_prob_lstm, build_transformer,
-                           build_prob_transformer, build_prob_gru_nb)
+from utils.network import (
+    build_gru, build_lstm, build_prob_gru, build_prob_lstm,
+    build_transformer, build_prob_transformer, build_prob_gru_nb,
+)
 from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
 from utils.data import build_dataloaders
 
-import argparse #for debuggin remove later before submission
-from utils.optuna_search import optuna_search #DELETE before submission
+import argparse
 
 PROJECT_DIR = Path(__file__).resolve().parent
 
-# TRAIN_CONFIG = {
-#     "seed":                     42,
-#     "epochs":                   50,
-#     "lr":                       1e-3,
-#     "hidden":                   128,
-#     "layers":                   2,
-#     "dropout":                  0.2,
-#     "batch_size":               256,
-#     "seq_len":                  28,
-#     "horizon":                  28,
-#     "store_id":                 "CA_3",
-#     "data_dir":                 "./data",
-#     "max_series":               None,
-#     "num_workers":              0,
-#     "early_stopping_patience":  10,
-#     "early_stopping_min_delta": 0.001,
-#     "sigma_reg": 0.01,
-# }
+# =============================================================================
+# EXPERIMENT CONFIGS
+# =============================================================================
 configs = [
-    # {"model_type": "gru", "probabilistic": False},
-    # {"model_type": "gru", "probabilistic": True},
-    # {"model_type": "lstm", "probabilistic": False},
+    {"model_type": "gru",         "probabilistic": False},
+    # {"model_type": "gru",         "probabilistic": True},
+    # {"model_type": "lstm",        "probabilistic": False},
+    # {"model_type": "lstm",        "probabilistic": True},
     # {"model_type": "transformer", "probabilistic": False},
     # {"model_type": "transformer", "probabilistic": True},
-    {"model_type": "gru_nb", "probabilistic": True},
+    {"model_type": "gru_nb",      "probabilistic": True},
 ]
 
+# =============================================================================
+# BASE CONFIG
+# =============================================================================
 TRAIN_CONFIG = {
-    "seed": 42,
+    "seed":   42,
     "epochs": 60,
 
-    "model_type": "gru",
+    # model
+    "model_type":    "gru",
     "probabilistic": False,
-    "hidden": 256,
-    "layers": 2,
-    "dropout": 0.15,
-    "horizon": 28,
+    "hidden":        256,
+    "layers":        2,
+    "dropout":       0.15,
+    "horizon":       28,
 
+    # transformer-specific
     "d_model": 256,
-    "n_heads": 8,
-    "ff_dim": 512,
+    "n_heads":  8,
+    "ff_dim":  512,
 
-    "batch_size": 1024,
-    "seq_len": 56,
-    "store_id": "CA_3",
-    "data_dir": "./data",
-    "max_series": None,
-    "num_workers": 8,
+    # data — V3 unified workflow
+    "batch_size":      1024,
+    "seq_len":         28,           # matches teammate
+    "top_k_series":    200,          # matches teammate (top-200 by volume)
+    "feature_set":     "sales_only", # "sales_only" | "sales_hierarchy" | "sales_hierarchy_dow"
+    "autoregressive":  True,         # True = 1-step ahead + recursive rollout at test
+    "use_normalise":   False,        # False = raw counts, matching teammate
+    "data_dir":        "./data",
+    "max_series":      None,
+    "num_workers":     8,
 
+    # optimisation — unchanged from V2
     "optimiser": "adamw",
     "optimiser_params": {
-        "lr": 1e-3,
+        "lr":           1e-3,
         "weight_decay": 1e-4,
     },
     "scheduler": "plateau",
     "scheduler_params": {
         "patience": 5,
-        "factor": 0.5,
+        "factor":   0.5,
     },
     "clip_grad_norm": 1.0,
 
-    "early_stopping_patience": 8,
+    # early stopping — unchanged from V2
+    "early_stopping_patience":  8,
     "early_stopping_min_delta": 5e-4,
 
+    # probabilistic
     "sigma_reg": 1e-3,
 }
 
 SEARCH = True
-USE_OPTUNA = False #DELETE before submission
 
-
+# =============================================================================
+# SEARCH SPACES — unchanged from V2
+# =============================================================================
 GRU_SEARCH_SPACE = {
-    "optimiser_params.lr": (5e-5, 5e-3, "log"),
+    "optimiser_params.lr":           (5e-5, 5e-3, "log"),
     "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
-    "hidden": (128, 512, "uniform"),
-    "layers": (1, 3, "uniform"),
-    "dropout": (0.05, 0.35, "uniform"),
-    "clip_grad_norm": (0.5, 2.0, "uniform"),
+    "hidden":                        (128,  512,   "uniform"),
+    "layers":                        (1,    3,     "uniform"),
+    "dropout":                       (0.05, 0.35,  "uniform"),
+    "clip_grad_norm":                (0.5,  2.0,   "uniform"),
 }
 
 LSTM_SEARCH_SPACE = {
-    "optimiser_params.lr": (5e-5, 5e-3, "log"),
+    "optimiser_params.lr":           (5e-5, 5e-3, "log"),
     "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
-    "hidden": (128, 512, "uniform"),
-    "layers": (1, 3, "uniform"),
-    "dropout": (0.05, 0.35, "uniform"),
-    "clip_grad_norm": (0.5, 2.0, "uniform"),
+    "hidden":                        (128,  512,   "uniform"),
+    "layers":                        (1,    3,     "uniform"),
+    "dropout":                       (0.05, 0.35,  "uniform"),
+    "clip_grad_norm":                (0.5,  2.0,   "uniform"),
 }
 
 PROB_SEARCH_SPACE = {
-    "optimiser_params.lr": (5e-5, 1e-3, "log"),  # was 3e-3
-    "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
-    "hidden": (128, 512, "uniform"),
-    "layers": (1, 3, "uniform"),
-    "dropout": (0.05, 0.35, "uniform"),
-    "sigma_reg": (1e-4, 5e-2, "log"),
-    "clip_grad_norm": (0.25, 1.5, "uniform"),
+    "optimiser_params.lr":           (5e-5, 1e-3,  "log"),
+    "optimiser_params.weight_decay": (1e-7, 5e-3,  "log"),
+    "hidden":                        (128,  512,    "uniform"),
+    "layers":                        (1,    3,      "uniform"),
+    "dropout":                       (0.05, 0.35,   "uniform"),
+    "sigma_reg":                     (1e-4, 5e-2,   "log"),
+    "clip_grad_norm":                (0.25, 1.5,    "uniform"),
 }
 
 TRANSFORMER_SEARCH_SPACE = {
-    "optimiser_params.lr": (1e-4, 3e-3, "log"),
-    "optimiser_params.weight_decay": (1e-7, 1e-2, "log"),
-    "d_model": (128, 512, "uniform"),
-    "layers": (2, 6, "uniform"),
-    "dropout": (0.05, 0.3, "uniform"),
-    "ff_dim": (256, 1024, "uniform"),
-    "clip_grad_norm": (0.5, 2.0, "uniform"),
+    "optimiser_params.lr":           (1e-4, 3e-3,  "log"),
+    "optimiser_params.weight_decay": (1e-7, 1e-2,  "log"),
+    "d_model":                       (128,  512,    "uniform"),
+    "layers":                        (2,    6,      "uniform"),
+    "dropout":                       (0.05, 0.3,    "uniform"),
+    "ff_dim":                        (256,  1024,   "uniform"),
+    "clip_grad_norm":                (0.5,  2.0,    "uniform"),
 }
 
 HYPER_PARAM_INIT_MODELS = 10
 HYPER_PARAM_SEARCH_SCHEDULE = [
-    {"epochs": 10,  "keep": math.ceil(HYPER_PARAM_INIT_MODELS / 2)},
+    {"epochs": 10, "keep": math.ceil(HYPER_PARAM_INIT_MODELS / 2)},
     {"epochs": 10, "keep": math.ceil(HYPER_PARAM_INIT_MODELS / 4)},
     {"epochs": 20, "keep": 1},
 ]
 
-# DEBUG — parse_args allows CLI overrides for quick testing
-# e.g. python train.py --max_series 10 --epochs 2 --num_workers 0
-# REMOVE parse_args() and uncomment comment out bit below before submission
+# =============================================================================
+# HELPERS
+# =============================================================================
+
 def parse_args():
-    p = argparse.ArgumentParser(description="Train GRU/LSTM on M5")
+    p = argparse.ArgumentParser(description="Train M5 V3")
     for k, v in TRAIN_CONFIG.items():
         if isinstance(v, dict):
-            continue  # skip nested dicts — not CLI overridable
+            continue
         elif isinstance(v, bool):
             p.add_argument(f"--{k}", action="store_true", default=v)
         elif v is None:
@@ -153,191 +154,140 @@ def parse_args():
 
 
 def get_experiment_kwargs(cfg):
-    if cfg["model_type"] == "gru":
-        if cfg["probabilistic"]:
-            return dict(
-                builder=build_prob_gru,
-                training_step=prob_gru_step,
-                search_space=PROB_SEARCH_SPACE if SEARCH else None,
-            )
-        return dict(
-            builder=build_gru,
-            training_step=gru_step,
-            search_space=GRU_SEARCH_SPACE if SEARCH else None,
-        )
+    from utils.data import get_feature_cols
+    cfg["n_features"] = len(get_feature_cols(cfg["feature_set"]))
+    model_type = cfg["model_type"]
+    is_prob    = cfg["probabilistic"]
 
-    elif cfg["model_type"] == "lstm":
-        if cfg["probabilistic"]:
-            return dict(
-                builder=build_prob_lstm,
-                training_step=prob_gru_step,
-                search_space=PROB_SEARCH_SPACE if SEARCH else None,
-            )
+    if model_type == "gru":
         return dict(
-            builder=build_lstm,
-            training_step=gru_step,
-            search_space=LSTM_SEARCH_SPACE if SEARCH else None,
+            builder       = build_prob_gru    if is_prob else build_gru,
+            training_step = prob_gru_step     if is_prob else gru_step,
+            search_space  = (PROB_SEARCH_SPACE if is_prob else GRU_SEARCH_SPACE)
+                            if SEARCH else None,
         )
-
-    elif cfg["model_type"] == "transformer":
+    elif model_type == "lstm":
         return dict(
-            builder=build_prob_transformer if cfg["probabilistic"] else build_transformer,
-            training_step=prob_gru_step if cfg["probabilistic"] else gru_step,
-            search_space=TRANSFORMER_SEARCH_SPACE if SEARCH else None,
+            builder       = build_prob_lstm   if is_prob else build_lstm,
+            training_step = prob_gru_step     if is_prob else gru_step,
+            search_space  = (PROB_SEARCH_SPACE if is_prob else LSTM_SEARCH_SPACE)
+                            if SEARCH else None,
         )
-    elif cfg["model_type"] == "gru_nb":
+    elif model_type == "transformer":
         return dict(
-            builder=build_prob_gru_nb,
-            training_step=prob_nb_step,
-            search_space=PROB_SEARCH_SPACE if SEARCH else None,
+            builder       = build_prob_transformer if is_prob else build_transformer,
+            training_step = prob_gru_step          if is_prob else gru_step,
+            search_space  = TRANSFORMER_SEARCH_SPACE if SEARCH else None,
+        )
+    elif model_type == "gru_nb":
+        return dict(
+            builder       = build_prob_gru_nb,
+            training_step = prob_nb_step,
+            search_space  = PROB_SEARCH_SPACE if SEARCH else None,
         )
     else:
-        raise ValueError("Unknown model_type")
+        raise ValueError(f"Unknown model_type: {model_type}")
 
+
+# =============================================================================
+# MAIN
+# =============================================================================
 
 def main():
-    # cfg = parse_args()  # REMOVE before submission and uncomment the commented out bit below
-    cli_args = parse_args()  # use the existing function
-    cfg = TRAIN_CONFIG.copy()
-    import sys
-    explicitly_passed = {arg.lstrip('-').replace('-', '_') for arg in sys.argv[1:] if arg.startswith('--')}
+    cli_args = parse_args()
+    cfg      = TRAIN_CONFIG.copy()
+    explicitly_passed = {
+        arg.lstrip("-").replace("-", "_")
+        for arg in sys.argv[1:]
+        if arg.startswith("--")
+    }
     for k in explicitly_passed:
         if k in cli_args:
             cfg[k] = cli_args[k]
 
-    # try:
-    #     cfg = TRAIN_CONFIG.copy()
-    # except NameError:
-    #     raise RuntimeError(
-    #         "TRAIN_CONFIG must be defined before calling main(). "
-    #         "It defines the experiment hyperparameters."
-    #     )
-
-    # shared data kwargs passed to build_dataloaders
+    # ------------------------------------------------------------------
+    # Base data kwargs — shared across all experiments
+    # Note: zscore_target is NOT included here — it is injected per-model
+    # below because det vs prob models require different normalisation
+    # ------------------------------------------------------------------
     data_kwargs = dict(
-        data_dir    = cfg["data_dir"],
-        seq_len     = cfg["seq_len"],
-        horizon     = cfg["horizon"],
-        batch_size  = cfg["batch_size"],
-        store_id    = cfg["store_id"],
-        max_series  = cfg["max_series"],
-        num_workers = cfg["num_workers"],
-        seed        = cfg["seed"],
+        data_dir       = cfg["data_dir"],
+        seq_len        = cfg["seq_len"],
+        horizon        = cfg["horizon"],
+        batch_size     = cfg["batch_size"],
+        top_k_series   = cfg["top_k_series"],
+        feature_set    = cfg["feature_set"],
+        autoregressive = cfg["autoregressive"],
+        use_normalise  = cfg["use_normalise"],
+        max_series     = cfg["max_series"],
+        num_workers    = cfg["num_workers"],
+        seed           = cfg["seed"],
     )
 
-    # experiments = {
-    #     "gru_deterministic": dict(
-    #         builder=build_gru,
-    #         training_step=gru_step,
-    #         search_space=GRU_SEARCH_SPACE if SEARCH else None,
-    #     ),
-    #     "lstm_deterministic": dict(
-    #         builder=build_lstm,
-    #         training_step=gru_step,
-    #         search_space=LSTM_SEARCH_SPACE if SEARCH else None,
-    #     ),
-    #     "gru_probabilistic": dict(
-    #         builder=build_prob_gru,
-    #         training_step=prob_gru_step,
-    #         search_space=PROB_SEARCH_SPACE if SEARCH else None,
-    #     ),
-    #     "lstm_probabilistic": dict(
-    #         builder=build_prob_lstm,
-    #         training_step=prob_gru_step,
-    #         search_space=PROB_SEARCH_SPACE if SEARCH else None,
-    #     ),
-    #     "transformer_deterministic": dict(
-    #         builder=build_transformer,
-    #         training_step=gru_step,
-    #         search_space=TRANSFORMER_SEARCH_SPACE if SEARCH else None,
-    #     ),
-    #     "transformer_probabilistic": dict(
-    #         builder=build_prob_transformer,
-    #         training_step=prob_gru_step,
-    #         search_space=TRANSFORMER_SEARCH_SPACE if SEARCH else None,
-    #     ),
-    # }
-    # for name, kwargs in experiments.items():
-    #     is_prob = "prob" in name
-    #     exp = Experiment(name, cfg, model_dir=get_model_dir(name, PROJECT_DIR))
-    #     exp.run(
-    #         data_fn=build_dataloaders,
-    #         schedule=HYPER_PARAM_SEARCH_SCHEDULE,
-    #         initial_models=HYPER_PARAM_INIT_MODELS,
-    #         zscore_target=not is_prob,
-    #         **data_kwargs,
-    #         **kwargs,
-    #     )
-    #     save_json(exp.stats, exp.model_dir / "normalisation_stats.json")
-
-    # load data ONCE before the loop
-    # load data ONCE
+    # ------------------------------------------------------------------
+    # Load data — behaviour depends on use_normalise flag:
+    #
+    # use_normalise=False (default, matching teammate):
+    #   Single loader, raw counts, all models share it.
+    #
+    # use_normalise=True:
+    #   Three loaders — det (zscore=True), Gaussian prob (zscore=False),
+    #   NB (zscore=False) — same as V2 pattern.
+    # ------------------------------------------------------------------
     print("\n[main] Loading data once for all experiments...")
-    train_loader_det, val_loader_det, test_loader_det, stats_det = build_dataloaders(**data_kwargs, zscore_target=True)
-    train_loader_gauss, val_loader_gauss, test_loader_gauss, stats_gauss = build_dataloaders(**data_kwargs,zscore_target=False)
-    train_loader_nb, val_loader_nb, test_loader_nb, stats_nb = build_dataloaders(**data_kwargs,zscore_target=False)
+
+    if not cfg["use_normalise"]:
+        train_loader, val_loader, test_loader, stats = build_dataloaders(**data_kwargs)
+        train_loader_det   = train_loader_gauss = train_loader_nb = train_loader
+        val_loader_det     = val_loader_gauss   = val_loader_nb   = val_loader
+        test_loader_det    = test_loader_gauss  = test_loader_nb  = test_loader
+        stats_det          = stats_gauss        = stats_nb        = stats
+    else:
+        train_loader_det,   val_loader_det,   test_loader_det,   stats_det   = build_dataloaders(**data_kwargs, zscore_target=True)
+        train_loader_gauss, val_loader_gauss, test_loader_gauss, stats_gauss = build_dataloaders(**data_kwargs, zscore_target=False)
+        train_loader_nb,    val_loader_nb,    test_loader_nb,    stats_nb    = build_dataloaders(**data_kwargs, zscore_target=False)
+
     print("[main] Data loaded. Starting experiments.\n")
 
     for override in configs:
         cfg = TRAIN_CONFIG.copy()
         cfg.update(override)
 
-        kwargs = get_experiment_kwargs(cfg)
-        is_prob = cfg["probabilistic"]
-        head = "direct"
-        exp_name = f"{cfg['model_type']}_{head}_{'prob' if is_prob else 'det'}"
-        exp = Experiment(exp_name, cfg, model_dir=get_model_dir(exp_name, PROJECT_DIR))
+        kwargs   = get_experiment_kwargs(cfg)
+        is_prob  = cfg["probabilistic"]
+        exp_name = f"{cfg['model_type']}_{'prob' if is_prob else 'det'}"
+        exp      = Experiment(exp_name, cfg, model_dir=get_model_dir(exp_name, PROJECT_DIR))
 
-        # inject correct loaders
+        # Inject correct loaders — same routing logic as V2
         if cfg["model_type"] == "gru_nb":
             exp.train_loader = train_loader_nb
-            exp.val_loader = val_loader_nb
+            exp.val_loader   = val_loader_nb
             exp.test_dataset = test_loader_nb
-            exp.stats = stats_nb
+            exp.stats        = stats_nb
         elif is_prob:
             exp.train_loader = train_loader_gauss
-            exp.val_loader = val_loader_gauss
+            exp.val_loader   = val_loader_gauss
             exp.test_dataset = test_loader_gauss
-            exp.stats = stats_gauss
+            exp.stats        = stats_gauss
         else:
             exp.train_loader = train_loader_det
-            exp.val_loader = val_loader_det
+            exp.val_loader   = val_loader_det
             exp.test_dataset = test_loader_det
-            exp.stats = stats_det
+            exp.stats        = stats_det
         exp.preloaded = True
 
-        if not USE_OPTUNA:
-            exp.run(
-                data_fn=build_dataloaders,
-                schedule=HYPER_PARAM_SEARCH_SCHEDULE,
-                initial_models=HYPER_PARAM_INIT_MODELS,
-                zscore_target=not is_prob,
-                **data_kwargs,
-                **kwargs,
-            )
-        else:
-            best_cfg = optuna_search(
-                search_space=kwargs["search_space"],
-                train_loader=exp.train_loader,  # correct — already set above
-                val_loader=exp.val_loader,
-                builder=kwargs['builder'],
-                model_dir=exp.model_dir,
-                base_config=cfg,
-                training_step=kwargs["training_step"],
-                n_trials=30,
-            )
-            print(f"\nBest config from Optuna: {best_cfg}")
-            # update config with best params
-            final_cfg = cfg.copy()
-            final_cfg.update(best_cfg)
-            exp.cfg = final_cfg
-            # train final model with best config
-            exp.train(kwargs['builder'], kwargs['training_step'])
+        exp.run(
+            data_fn        = build_dataloaders,
+            schedule       = HYPER_PARAM_SEARCH_SCHEDULE,
+            initial_models = HYPER_PARAM_INIT_MODELS,
+            zscore_target  = not is_prob,
+            **data_kwargs,
+            **kwargs,
+        )
 
-        save_json(exp.stats, exp.model_dir / "normalisation_stats.json")
+        if exp.stats is not None:
+            save_json(exp.stats, exp.model_dir / "normalisation_stats.json")
 
 
 if __name__ == "__main__":
     main()
-
-

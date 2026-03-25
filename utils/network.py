@@ -3,8 +3,23 @@ import torch
 import math
 
 
-from utils.data import N_FEATURES
 from utils.optimisation import OptimisationConfig
+
+# N_FEATURES is now dynamic — determined by feature_set at runtime.
+# Builders read n_features from cfg["n_features"] instead of a global.
+def _n_features(cfg: dict) -> int:
+    """Resolve input feature size from config."""
+    return int(cfg.get("n_features", 1))
+
+def _output_size(cfg: dict) -> int:
+    """
+    Resolve model output size from config.
+    autoregressive=True  -> 1  (1-step ahead, recursive rollout at test)
+    autoregressive=False -> horizon  (direct multi-step)
+    """
+    if cfg.get("autoregressive", True):
+        return 1
+    return int(cfg["horizon"])
 
 def get_num_heads(hidden_size: int) -> int:
     for h in [8, 4, 2, 1]:
@@ -55,7 +70,7 @@ class HorizonConditionedHead(nn.Module):
 
 
 class SalesGRU(nn.Module):
-    def __init__(self, input_size=N_FEATURES, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
+    def __init__(self, input_size=1, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
         super().__init__()
         self.input_proj = nn.Sequential(
             nn.Linear(input_size, hidden_size),
@@ -87,11 +102,11 @@ def build_gru(cfg):
     from utils.common import device, rmse, mae, mape, r2
 
     model = SalesGRU(
-        input_size=N_FEATURES,
+        input_size  = _n_features(cfg),
         hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
-        num_layers=int(cfg["layers"]),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        num_layers  = int(cfg["layers"]),
+        dropout     = cfg["dropout"],
+        horizon     = _output_size(cfg),
     ).to(device)
     criterion = nn.MSELoss()
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -104,7 +119,7 @@ def build_gru(cfg):
 
 
 class SalesLSTM(nn.Module):
-    def __init__(self, input_size=N_FEATURES, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
+    def __init__(self, input_size=1, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
         super().__init__()
         self.input_proj = nn.Sequential(
             nn.Linear(input_size, hidden_size),
@@ -135,11 +150,11 @@ def build_lstm(cfg):
     """
     from utils.common import device, rmse, mae, mape, r2
     model = SalesLSTM(
-        input_size=N_FEATURES,
+        input_size  = _n_features(cfg),
         hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
-        num_layers=int(cfg["layers"]),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        num_layers  = int(cfg["layers"]),
+        dropout     = cfg["dropout"],
+        horizon     = _output_size(cfg),
     ).to(device)
     criterion = nn.MSELoss()
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -186,11 +201,11 @@ class ProbGRU(nn.Module):
 def build_prob_gru(cfg):
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = ProbGRU(
-        input_size=N_FEATURES,
+        input_size  = _n_features(cfg),
         hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
-        num_layers=int(cfg["layers"]),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        num_layers  = int(cfg["layers"]),
+        dropout     = cfg["dropout"],
+        horizon     = _output_size(cfg),
     ).to(device)
     criterion = gaussian_nll_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -239,11 +254,11 @@ def build_prob_gru_nb(cfg):
     from utils.common import device, rmse, mae, mape, r2, nb_nll_loss
 
     model = ProbGRU_NB(
-        input_size=N_FEATURES,
-        hidden_size=max(8, (int(cfg["hidden"]) // 8) * 8),
-        num_layers=int(cfg["layers"]),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        input_size  = _n_features(cfg),
+        hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
+        num_layers  = int(cfg["layers"]),
+        dropout     = cfg["dropout"],
+        horizon     = _output_size(cfg),
     ).to(device)
     criterion = nb_nll_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -295,11 +310,11 @@ class ProbLSTM(nn.Module):
 def build_prob_lstm(cfg):
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = ProbLSTM(
-        input_size=N_FEATURES,
+        input_size  = _n_features(cfg),
         hidden_size = max(8, (int(cfg["hidden"]) // 8) * 8),
-        num_layers=int(cfg["layers"]),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        num_layers  = int(cfg["layers"]),
+        dropout     = cfg["dropout"],
+        horizon     = _output_size(cfg),
     ).to(device)
     criterion = gaussian_nll_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -405,13 +420,13 @@ def build_transformer(cfg):
     """
     from utils.common import device, rmse, mae, mape, r2
     model = SalesTransformer(
-        input_size=N_FEATURES,
-        d_model = max(8, (int(cfg.get("d_model", 128)) // 8) * 8),
-        n_heads=int(cfg.get("n_heads", 4)),
-        ff_dim=int(cfg.get("ff_dim", 256)),
-        n_layers=int(cfg.get("layers", 2)),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        input_size = _n_features(cfg),
+        d_model    = max(8, (int(cfg.get("d_model", 128)) // 8) * 8),
+        n_heads    = int(cfg.get("n_heads", 4)),
+        ff_dim     = int(cfg.get("ff_dim", 256)),
+        n_layers   = int(cfg.get("layers", 2)),
+        dropout    = cfg["dropout"],
+        horizon    = _output_size(cfg),
     ).to(device)
     criterion = nn.MSELoss()
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -465,13 +480,13 @@ def build_prob_transformer(cfg):
     """
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = ProbSalesTransformer(
-        input_size=N_FEATURES,
-        d_model = max(8, (int(cfg.get("d_model", 128)) // 8) * 8),
-        n_heads=int(cfg.get("n_heads", 4)),
-        ff_dim=int(cfg.get("ff_dim", 256)),
-        n_layers=int(cfg.get("layers", 2)),
-        dropout=cfg["dropout"],
-        horizon=int(cfg["horizon"]),
+        input_size = _n_features(cfg),
+        d_model    = max(8, (int(cfg.get("d_model", 128)) // 8) * 8),
+        n_heads    = int(cfg.get("n_heads", 4)),
+        ff_dim     = int(cfg.get("ff_dim", 256)),
+        n_layers   = int(cfg.get("layers", 2)),
+        dropout    = cfg["dropout"],
+        horizon    = _output_size(cfg),
     ).to(device)
     criterion = gaussian_nll_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
