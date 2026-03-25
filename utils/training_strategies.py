@@ -9,6 +9,7 @@ def gru_step(model, inputs, labels, criterion, **kwargs):
     Returns MSE loss and predictions.
     """
     outputs = model(inputs)
+    outputs = outputs.squeeze(-1)
     loss = criterion(outputs, labels)
     return loss, outputs
 
@@ -22,6 +23,8 @@ def prob_gru_step(model, inputs, labels, criterion, **kwargs):
     # loss = criterion(mu, alpha, labels)
     # return loss, mu  # return mu as predictions for metric computation
     mu, sigma = model(inputs)
+    mu = mu.squeeze(-1)
+    sigma = sigma.squeeze(-1)
     loss = criterion(mu, sigma, labels, sigma_reg=kwargs.get("sigma_reg", 0.0))
     return loss, mu
 
@@ -29,6 +32,8 @@ prob_gru_step.valid_train_accuracy = False
 
 def prob_nb_step(model, inputs, labels, criterion, **kwargs):
     mu, alpha = model(inputs)
+    mu = mu.squeeze(-1)
+    alpha = alpha.squeeze(-1)
     loss = criterion(mu, alpha, labels)
     return loss, mu
 
