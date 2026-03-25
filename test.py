@@ -13,7 +13,8 @@ from pathlib import Path
 from utils.network import (
     build_gru, build_lstm, build_transformer,
     build_prob_gru, build_prob_lstm, build_prob_transformer,
-    build_prob_gru_nb,
+    build_prob_gru_nb, build_baseline_gru, build_baseline_prob_gru,
+    build_baseline_prob_gru_nb,
 )
 from utils.data import build_dataloaders, denormalise
 from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
@@ -23,12 +24,15 @@ from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
 # =============================================================================
 
 TEST_CONFIGS = [
+    {"model_type": "baseline_gru", "probabilistic": False},
+    {"model_type": "baseline_gru", "probabilistic": True},
     {"model_type": "gru",         "probabilistic": False},
     {"model_type": "gru",         "probabilistic": True},
     {"model_type": "lstm",        "probabilistic": False},
     {"model_type": "lstm",        "probabilistic": True},
     {"model_type": "transformer", "probabilistic": False},
     {"model_type": "transformer", "probabilistic": True},
+    {"model_type": "baseline_gru_nb", "probabilistic": True},
     {"model_type": "gru_nb",      "probabilistic": True},
 ]
 
@@ -42,12 +46,15 @@ print(f"Using device: {DEVICE}")
 # =============================================================================
 
 MODEL_REGISTRY = {
+    "baseline_gru_det": (build_baseline_gru,      gru_step,      False, False),
+    "baseline_gru_prob":(build_baseline_prob_gru, prob_gru_step, True,  False),
     "gru_det":          (build_gru,              gru_step,       False, False),
     "lstm_det":         (build_lstm,             gru_step,       False, False),
     "transformer_det":  (build_transformer,      gru_step,       False, False),
     "gru_prob":         (build_prob_gru,         prob_gru_step,  True,  False),
     "lstm_prob":        (build_prob_lstm,        prob_gru_step,  True,  False),
     "transformer_prob": (build_prob_transformer, prob_gru_step,  True,  False),
+    "baseline_gru_nb_prob": (build_baseline_prob_gru_nb, prob_nb_step, True, True),
     "gru_nb_prob":      (build_prob_gru_nb,      prob_nb_step,   True,  True),
 }
 

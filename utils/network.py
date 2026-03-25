@@ -495,3 +495,153 @@ def build_prob_transformer(cfg):
     training_kwargs["extra_metrics"] = {"val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2}
     training_kwargs.setdefault("sigma_reg", cfg.get("sigma_reg", 0.0))
     return model, criterion, optimiser, training_kwargs
+
+# =============================================================================
+# BASELINE MODELS — as vanilla as possible, no frills
+# Single GRU layer → linear head. No input projection, no LayerNorm,
+# no residual connections, no attention. Matches teammate's QuantileLSTM
+# in simplicity. Used as naive baselines for ablation comparison.
+# =============================================================================
+
+class BaselineGRU(nn.Module):
+    """
+    Vanilla GRU baseline — deterministic.
+    GRU → last hidden state → linear → scalar (autoregressive)
+                                     or horizon vector (direct)
+    """
+    def __init__(self, input_size: int = 1, hidden_size: int = 64,
+                 output_size: int = 1):
+        super().__init__()
+        self.gru = nn.GRU(
+            input_size  = input_size,
+            hidden_size = hidden_size,
+            num_layers  = 1,
+            batch_first = True,
+        )
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out, _ = self.gru(x)            # (B, T, H)
+        return self.fc(out[:, -1, :])   # (B, output_size)
+
+
+def build_baseline_gru(cfg):
+    """
+    Builder for deterministic baseline GRU.
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2
+    model = BaselineGRU(
+        input_size  = _n_features(cfg),
+        hidden_size = 64,
+        output_size = _output_size(cfg),
+    ).to(device)
+    criterion = nn.MSELoss()
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault("clip_grad_norm", 1.0)
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
+    }
+    return model, criterion, optimiser, training_kwargs
+
+
+class BaselineProbGRU(nn.Module):
+    """
+    Vanilla GRU baseline — probabilistic (Gaussian NLL).
+    GRU → last hidden state → two linear heads (mu, sigma).
+    No shared trunk, no attention, no residual connections.
+    """
+    def __init__(self, input_size: int = 1, hidden_size: int = 64,
+                 output_size: int = 1):
+        super().__init__()
+        self.gru = nn.GRU(
+            input_size  = input_size,
+            hidden_size = hidden_size,
+            num_layers  = 1,
+            batch_first = True,
+        )
+        self.mu_head = nn.Linear(hidden_size, output_size)
+        self.sigma_head = nn.Sequential(
+            nn.Linear(hidden_size, output_size),
+            nn.Softplus(),
+        )
+
+    def forward(self, x: torch.Tensor):
+        out, _ = self.gru(x)
+        last   = out[:, -1, :]
+        mu     = self.mu_head(last)
+        sigma  = torch.clamp(self.sigma_head(last), min=1e-3, max=10.0)
+        return mu, sigma
+
+
+def build_baseline_prob_gru(cfg):
+    """
+    Builder for probabilistic baseline GRU (Gaussian NLL).
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
+    model = BaselineProbGRU(
+        input_size  = _n_features(cfg),
+        hidden_size = 64,
+        output_size = _output_size(cfg),
+    ).to(device)
+    criterion = gaussian_nll_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault("clip_grad_norm", 1.0)
+    training_kwargs["disable_amp"] = True
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
+    }
+    training_kwargs.setdefault("sigma_reg", cfg.get("sigma_reg", 0.0))
+    return model, criterion, optimiser, training_kwargs
+
+
+class BaselineProbGRU_NB(nn.Module):
+    """
+    Vanilla GRU baseline — probabilistic (Negative Binomial NLL).
+    GRU → last hidden state → two linear heads (mu, alpha).
+    No input projection, no LayerNorm, no residual connections.
+    """
+    def __init__(self, input_size: int = 1, hidden_size: int = 64,
+                 output_size: int = 1):
+        super().__init__()
+        self.gru = nn.GRU(
+            input_size  = input_size,
+            hidden_size = hidden_size,
+            num_layers  = 1,
+            batch_first = True,
+        )
+        self.softplus  = nn.Softplus()
+        self.mu_head   = nn.Linear(hidden_size, output_size)
+        self.alpha_head = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x: torch.Tensor):
+        out, _ = self.gru(x)
+        last   = out[:, -1, :]
+        mu     = self.softplus(self.mu_head(last))   + 1e-6
+        alpha  = self.softplus(self.alpha_head(last)) + 1e-6
+        return mu, alpha
+
+
+def build_baseline_prob_gru_nb(cfg):
+    """
+    Builder for probabilistic baseline GRU (Negative Binomial NLL).
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, nb_nll_loss
+    model = BaselineProbGRU_NB(
+        input_size  = _n_features(cfg),
+        hidden_size = 64,
+        output_size = _output_size(cfg),
+    ).to(device)
+    criterion = nb_nll_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault("clip_grad_norm", 1.0)
+    training_kwargs["disable_amp"] = True
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
+    }
+    return model, criterion, optimiser, training_kwargs

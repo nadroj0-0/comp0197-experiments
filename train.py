@@ -12,6 +12,7 @@ from utils.experiment import *
 from utils.network import (
     build_gru, build_lstm, build_prob_gru, build_prob_lstm,
     build_transformer, build_prob_transformer, build_prob_gru_nb,
+    build_baseline_gru, build_baseline_prob_gru, build_baseline_prob_gru_nb,
 )
 from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
 from utils.data import build_dataloaders
@@ -24,13 +25,16 @@ PROJECT_DIR = Path(__file__).resolve().parent
 # EXPERIMENT CONFIGS
 # =============================================================================
 configs = [
-    {"model_type": "gru",         "probabilistic": False},
+    {"model_type": "baseline_gru",      "probabilistic": False},
+    {"model_type": "baseline_gru",      "probabilistic": True},
+    # {"model_type": "gru",         "probabilistic": False},
     # {"model_type": "gru",         "probabilistic": True},
     # {"model_type": "lstm",        "probabilistic": False},
     # {"model_type": "lstm",        "probabilistic": True},
     # {"model_type": "transformer", "probabilistic": False},
     # {"model_type": "transformer", "probabilistic": True},
-    {"model_type": "gru_nb",      "probabilistic": True},
+    {"model_type": "baseline_gru_nb", "probabilistic": True},
+    # {"model_type": "gru_nb",      "probabilistic": True},
 ]
 
 # =============================================================================
@@ -159,7 +163,13 @@ def get_experiment_kwargs(cfg):
     model_type = cfg["model_type"]
     is_prob    = cfg["probabilistic"]
 
-    if model_type == "gru":
+    if model_type == "baseline_gru":
+        return dict(
+            builder       = build_baseline_prob_gru if is_prob else build_baseline_gru,
+            training_step = prob_gru_step           if is_prob else gru_step,
+            search_space  = None,  # no search — baselines use fixed config
+    )
+    elif model_type == "gru":
         return dict(
             builder       = build_prob_gru    if is_prob else build_gru,
             training_step = prob_gru_step     if is_prob else gru_step,
@@ -178,6 +188,12 @@ def get_experiment_kwargs(cfg):
             builder       = build_prob_transformer if is_prob else build_transformer,
             training_step = prob_gru_step          if is_prob else gru_step,
             search_space  = TRANSFORMER_SEARCH_SPACE if SEARCH else None,
+        )
+    elif model_type == "baseline_gru_nb":
+        return dict(
+            builder=build_baseline_prob_gru_nb,
+            training_step=prob_nb_step,
+            search_space=None,
         )
     elif model_type == "gru_nb":
         return dict(
