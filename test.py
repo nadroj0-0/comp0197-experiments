@@ -18,6 +18,7 @@ from utils.network import (
 )
 from utils.data import build_dataloaders, denormalise
 from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
+import pandas as pd
 
 # =============================================================================
 # CONFIGURATION — add/remove entries to control which models get evaluated
@@ -63,6 +64,50 @@ def model_name_from_cfg(cfg):
     model_type = cfg["model_type"]
     suffix = "prob" if is_prob else "det"
     return f"{model_type}_{suffix}"
+
+
+# =============================================================================
+# REVENUE WEIGHTS — matches teammate's methodology exactly
+# weight_i = (train_volume_i * avg_price_i) / sum(all revenues)
+# =============================================================================
+
+def compute_item_weights(data_dir: str, top_k: int) -> np.ndarray:
+    """
+    Compute per-item revenue weights for the top-k series.
+    Matches teammate's preprocess_lstm_data_with_revenue_weights exactly:
+      - Select top-k items by total sales volume
+      - Merge average sell price per (item_id, store_id)
+      - weight_i = volume_i * price_i, normalised to sum to 1
+    Returns array of shape (top_k,) in the same order as the data pipeline.
+    """
+    sales_df  = pd.read_csv(f"{data_dir}/sales_train_evaluation.csv")
+    prices_df = pd.read_csv(f"{data_dir}/sell_prices.csv")
+
+    # Replicate trim_data — top-k by total volume
+    day_cols = [c for c in sales_df.columns if c.startswith("d_")]
+    sales_df["total_sales_volume"] = sales_df[day_cols].sum(axis=1)
+    sales_df = (
+        sales_df.sort_values("total_sales_volume", ascending=False)
+        .head(top_k)
+        .reset_index(drop=True)
+    )
+
+    # Average price per (item_id, store_id) — same as teammate
+    avg_prices = (
+        prices_df.groupby(["item_id", "store_id"])["sell_price"]
+        .mean()
+        .reset_index()
+    )
+    sales_df = sales_df.merge(avg_prices, on=["item_id", "store_id"], how="left")
+    sales_df["sell_price"] = sales_df["sell_price"].fillna(prices_df["sell_price"].median())
+
+    # Train split volume — exclude last 28 days (test window), same as teammate
+    train_day_cols = day_cols[:-28]
+    item_volumes   = sales_df[train_day_cols].sum(axis=1).values
+    item_revenues  = item_volumes * sales_df["sell_price"].values
+    item_weights   = item_revenues / item_revenues.sum()  # normalise to sum to 1
+
+    return item_weights.astype(np.float32)
 
 
 # =============================================================================
@@ -274,8 +319,7 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
         print(f"  [SKIP] {model_name} — no config in history JSON")
         return None
 
-    autoregressive = cfg.get("autoregressive", True)
-    print(f"  autoregressive flag: {autoregressive}")
+    autoregressive = cfg.get("autoregressive", False)
     horizon        = cfg.get("horizon", 28)
     seq_len        = cfg.get("seq_len",  28)
     use_normalise  = cfg.get("use_normalise", False)
@@ -385,6 +429,20 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
     print(f"  RMSE={rmse:.4f}  MAE={mae:.4f}  MAPE={mape:.2f}%  R²={r2:.4f}")
 
     metrics_dict = {"model": model_name, "rmse": rmse, "mae": mae, "mape": mape, "r2": r2}
+
+    # Weighted metrics — revenue weights matching teammate's methodology
+    item_weights = compute_item_weights(
+        data_dir = cfg.get("data_dir", "./data"),
+        top_k    = cfg.get("top_k_series", 200),
+    )
+    # item_weights: (N,)  preds/targets: (N, horizon)
+    per_item_mse = ((preds_orig - targets_orig) ** 2).mean(axis=1)  # (N,)
+    per_item_mae = np.abs(preds_orig - targets_orig).mean(axis=1)  # (N,)
+    w_rmse = float(np.sqrt((item_weights * per_item_mse).mean()))
+    w_mae = float((item_weights * per_item_mae).mean())
+    print(f"  W-RMSE={w_rmse:.4f}  W-MAE={w_mae:.4f}")
+    metrics_dict["w_rmse"] = w_rmse
+    metrics_dict["w_mae"]  = w_mae
 
     # Coverage for probabilistic models
     if is_nb and aux_np is not None:
@@ -503,20 +561,21 @@ def main():
 
     # Summary table
     if all_results:
-        print(f"\n{'='*60}")
+        print(f"\n{'='*70}")
         print("  RESULTS SUMMARY")
-        print(f"{'='*60}")
-        print(f"{'Model':<25} {'RMSE':>8} {'MAE':>8} {'MAPE':>8} {'R²':>8}")
-        print("-" * 60)
+        print(f"{'='*70}")
+        print(f"{'Model':<25} {'RMSE':>8} {'W-RMSE':>8} {'MAE':>8} {'W-MAE':>8} {'R²':>8}")
+        print("-" * 70)
         for r in all_results:
             print(
                 f"{r['model']:<25} "
                 f"{r['rmse']:>8.4f} "
+                f"{r.get('w_rmse', float('nan')):>8.4f} "
                 f"{r['mae']:>8.4f} "
-                f"{r['mape']:>7.2f}% "
+                f"{r.get('w_mae', float('nan')):>8.4f} "
                 f"{r['r2']:>8.4f}"
             )
-        print("=" * 60)
+        print("=" * 70)
 
         # Save combined results
         with open(MODELS_DIR / "all_test_metrics.json", "w") as f:
