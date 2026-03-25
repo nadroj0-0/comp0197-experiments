@@ -509,13 +509,15 @@ class BaselineGRU(nn.Module):
     GRU → last hidden state → linear → scalar (autoregressive)
                                      or horizon vector (direct)
     """
-    def __init__(self, input_size: int = 1, hidden_size: int = 64,
-                 output_size: int = 1):
+
+    def __init__(self, input_size=1, hidden_size=64,
+                 num_layers=1, dropout=0.0, output_size=1):
         super().__init__()
         self.gru = nn.GRU(
             input_size  = input_size,
             hidden_size = hidden_size,
-            num_layers  = 1,
+            num_layers  = num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
             batch_first = True,
         )
         self.fc = nn.Linear(hidden_size, output_size)
@@ -532,9 +534,11 @@ def build_baseline_gru(cfg):
     """
     from utils.common import device, rmse, mae, mape, r2
     model = BaselineGRU(
-        input_size  = _n_features(cfg),
-        hidden_size = 64,
-        output_size = _output_size(cfg),
+        input_size=_n_features(cfg),
+        hidden_size=int(cfg.get("hidden", 64)),
+        num_layers=int(cfg.get("layers", 1)),
+        dropout=float(cfg.get("dropout", 0.0)),
+        output_size=_output_size(cfg),
     ).to(device)
     criterion = nn.MSELoss()
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -552,13 +556,15 @@ class BaselineProbGRU(nn.Module):
     GRU → last hidden state → two linear heads (mu, sigma).
     No shared trunk, no attention, no residual connections.
     """
-    def __init__(self, input_size: int = 1, hidden_size: int = 64,
-                 output_size: int = 1):
+
+    def __init__(self, input_size=1, hidden_size=64,
+                 num_layers=1, dropout=0.0, output_size=1):
         super().__init__()
         self.gru = nn.GRU(
             input_size  = input_size,
             hidden_size = hidden_size,
-            num_layers  = 1,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
             batch_first = True,
         )
         self.mu_head = nn.Linear(hidden_size, output_size)
@@ -582,9 +588,11 @@ def build_baseline_prob_gru(cfg):
     """
     from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
     model = BaselineProbGRU(
-        input_size  = _n_features(cfg),
-        hidden_size = 64,
-        output_size = _output_size(cfg),
+        input_size=_n_features(cfg),
+        hidden_size=int(cfg.get("hidden", 64)),
+        num_layers=int(cfg.get("layers", 1)),
+        dropout=float(cfg.get("dropout", 0.0)),
+        output_size=_output_size(cfg),
     ).to(device)
     criterion = gaussian_nll_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -604,13 +612,15 @@ class BaselineProbGRU_NB(nn.Module):
     GRU → last hidden state → two linear heads (mu, alpha).
     No input projection, no LayerNorm, no residual connections.
     """
-    def __init__(self, input_size: int = 1, hidden_size: int = 64,
-                 output_size: int = 1):
+
+    def __init__(self, input_size=1, hidden_size=64,
+                 num_layers=1, dropout=0.0, output_size=1):
         super().__init__()
         self.gru = nn.GRU(
             input_size  = input_size,
             hidden_size = hidden_size,
-            num_layers  = 1,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
             batch_first = True,
         )
         self.softplus  = nn.Softplus()
@@ -632,9 +642,11 @@ def build_baseline_prob_gru_nb(cfg):
     """
     from utils.common import device, rmse, mae, mape, r2, nb_nll_loss
     model = BaselineProbGRU_NB(
-        input_size  = _n_features(cfg),
-        hidden_size = 64,
-        output_size = _output_size(cfg),
+        input_size=_n_features(cfg),
+        hidden_size=int(cfg.get("hidden", 64)),
+        num_layers=int(cfg.get("layers", 1)),
+        dropout=float(cfg.get("dropout", 0.0)),
+        output_size=_output_size(cfg),
     ).to(device)
     criterion = nb_nll_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)

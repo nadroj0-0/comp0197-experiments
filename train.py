@@ -94,6 +94,34 @@ SEARCH = True
 # =============================================================================
 # SEARCH SPACES — unchanged from V2
 # =============================================================================
+BASELINE_DET_SEARCH_SPACE = {
+    "optimiser_params.lr":           (1e-4, 1e-2,  "log"),
+    "optimiser_params.weight_decay": (1e-7, 1e-3,  "log"),
+    "hidden":                        (32,   128,    "uniform"),
+    "layers":                        (1,    2,      "uniform"),
+    "dropout":                       (0.0,  0.3,    "uniform"),
+    "clip_grad_norm":                (0.5,  2.0,    "uniform"),
+}
+
+BASELINE_PROB_SEARCH_SPACE = {
+    "optimiser_params.lr":           (5e-5, 5e-3,  "log"),   # tighter — NLL more sensitive
+    "optimiser_params.weight_decay": (1e-7, 1e-3,  "log"),
+    "hidden":                        (32,   128,    "uniform"),
+    "layers":                        (1,    2,      "uniform"),
+    "dropout":                       (0.0,  0.3,    "uniform"),
+    "clip_grad_norm":                (0.25, 1.5,    "uniform"),  # tighter
+    "sigma_reg":                     (1e-4, 5e-2,   "log"),   # prevent sigma collapse
+}
+
+BASELINE_NB_SEARCH_SPACE = {
+    "optimiser_params.lr":           (5e-5, 1e-3,  "log"),   # tightest — NB most unstable
+    "optimiser_params.weight_decay": (1e-6, 1e-2,  "log"),   # stronger to regularise alpha
+    "hidden":                        (32,   128,    "uniform"),
+    "layers":                        (1,    2,      "uniform"),
+    "dropout":                       (0.0,  0.3,    "uniform"),
+    "clip_grad_norm":                (0.25, 1.0,    "uniform"),  # tightest
+}
+
 GRU_SEARCH_SPACE = {
     "optimiser_params.lr":           (5e-5, 5e-3, "log"),
     "optimiser_params.weight_decay": (1e-7, 5e-3, "log"),
@@ -165,10 +193,11 @@ def get_experiment_kwargs(cfg):
 
     if model_type == "baseline_gru":
         return dict(
-            builder       = build_baseline_prob_gru if is_prob else build_baseline_gru,
-            training_step = prob_gru_step           if is_prob else gru_step,
-            search_space  = None,  # no search — baselines use fixed config
-    )
+            builder=build_baseline_prob_gru if is_prob else build_baseline_gru,
+            training_step=prob_gru_step if is_prob else gru_step,
+            search_space=(BASELINE_PROB_SEARCH_SPACE if is_prob else BASELINE_DET_SEARCH_SPACE)
+            if SEARCH else None,
+        )
     elif model_type == "gru":
         return dict(
             builder       = build_prob_gru    if is_prob else build_gru,
@@ -193,7 +222,7 @@ def get_experiment_kwargs(cfg):
         return dict(
             builder=build_baseline_prob_gru_nb,
             training_step=prob_nb_step,
-            search_space=None,
+            search_space=BASELINE_NB_SEARCH_SPACE if SEARCH else None,
         )
     elif model_type == "gru_nb":
         return dict(
