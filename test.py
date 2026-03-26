@@ -433,7 +433,7 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
     # Weighted metrics — revenue weights matching teammate's methodology
     item_weights = compute_item_weights(
         data_dir = cfg.get("data_dir", "./data"),
-        top_k    = cfg.get("top_k_series", 200),
+        top_k    = cfg.get("top_k_series", 3048),
     )
     # item_weights: (N,)  preds/targets: (N, horizon)
     per_item_mse = ((preds_orig - targets_orig) ** 2).mean(axis=1)  # (N,)
