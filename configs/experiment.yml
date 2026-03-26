@@ -1,0 +1,70 @@
+# =============================================================================
+# experiment.yml — Master experiment configuration
+# COMP0197 Applied Deep Learning
+#
+# This is the ONLY file you need to edit between runs.
+# Change run_name when starting a new ablation so artifacts go to a new folder.
+# Comment/uncomment models to control what trains and evaluates.
+# =============================================================================
+
+run_name: baseline_ablation_sales_hierarchy_dow
+
+# =============================================================================
+# SEARCH — hyperparameter search settings
+# Set enabled: false for submission (models train with configs already in ymls)
+# =============================================================================
+search:
+  enabled: true
+  sampling: stratified      # top/middle/bottom thirds of volume distribution
+  top_k_series: 1000        # per stratum — 1000+1000+1000 = 3000 total
+  init_models: 10
+  schedule:
+    - epochs: 10
+      keep: 5
+    - epochs: 10
+      keep: 3
+    - epochs: 20
+      keep: 1
+
+# =============================================================================
+# TRAIN — full training settings (Phase 2)
+# =============================================================================
+train:
+  data_dir: ./data
+  sampling: all             # full dataset
+  top_k_series: 30490       # ignored when sampling=all, kept for reference
+  feature_set: sales_hierarchy_dow   # sales_only | sales_hierarchy | sales_hierarchy_dow
+  seq_len: 28
+  horizon: 28
+  autoregressive: true
+  use_normalise: false
+  batch_size: 2048
+  num_workers: 0
+  seed: 42
+
+# =============================================================================
+# EVAL — evaluation settings for test.py
+# Always evaluate on full dataset regardless of what the model was searched on
+# =============================================================================
+eval:
+  data_dir: ./data
+  sampling: all
+  top_k_series: 30490
+  feature_set: sales_hierarchy_dow   # must match train feature_set
+
+# =============================================================================
+# MODELS — comment out to skip, uncomment to include
+# =============================================================================
+models:
+  - baseline_gru_det
+  - baseline_gru_prob
+  - baseline_gru_nb
+  - baseline_quantile_gru
+  - baseline_wquantile_gru
+  # - gru_det
+  # - gru_prob
+  # - gru_nb
+  # - lstm_det
+  # - lstm_prob
+  # - transformer_det
+  # - transformer_prob

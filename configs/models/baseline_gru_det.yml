@@ -1,0 +1,50 @@
+# baseline_gru_det.yml — Vanilla GRU, MSE loss (deterministic)
+model_name: baseline_gru_det
+model_type: baseline_gru
+probabilistic: false
+
+# ---------------------------------------------------------------------------
+# TRAIN CONFIG — defaults used when search has not run
+# search.py merges best_config into this section after search completes
+# ---------------------------------------------------------------------------
+train_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: true
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 1.0
+  hidden: 64
+  layers: 1
+  dropout: 0.0
+
+# ---------------------------------------------------------------------------
+# BEST CONFIG — written by search.py after hyperparameter search
+# Empty until search has run — do not edit manually
+# ---------------------------------------------------------------------------
+best_config: {}
+
+# ---------------------------------------------------------------------------
+# SEARCH SPACE
+# Format: param: [low, high, mode]  where mode is log or uniform
+# Nested params use dot notation: optimiser_params.lr
+# ---------------------------------------------------------------------------
+search_space:
+  optimiser_params.lr: [0.0001, 0.01, log]
+  optimiser_params.weight_decay: [1.0e-7, 0.001, log]
+  hidden: [32, 128, uniform]
+  layers: [1, 2, uniform]
+  dropout: [0.0, 0.3, uniform]
+  clip_grad_norm: [0.5, 2.0, uniform]

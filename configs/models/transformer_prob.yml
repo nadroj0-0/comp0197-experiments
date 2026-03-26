@@ -1,0 +1,42 @@
+# transformer_prob.yml — Full Transformer with HorizonConditionedHead, Gaussian NLL loss
+model_name: transformer_prob
+model_type: transformer
+probabilistic: true
+
+train_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: true
+  use_normalise: false
+  feature_set: sales_only
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.5
+  d_model: 256
+  layers: 2
+  dropout: 0.1
+  ff_dim: 512
+  n_heads: 8
+  sigma_reg: 0.001
+
+best_config: {}
+
+search_space:
+  optimiser_params.lr: [0.0001, 0.003, log]
+  optimiser_params.weight_decay: [1.0e-7, 0.01, log]
+  d_model: [128, 512, uniform]
+  layers: [2, 6, uniform]
+  dropout: [0.05, 0.3, uniform]
+  ff_dim: [256, 1024, uniform]
+  clip_grad_norm: [0.25, 1.5, uniform]
+  sigma_reg: [1.0e-4, 0.05, log]

@@ -68,20 +68,58 @@ def load_or_download_m5(data_dir: str):
     return load_raw_data(data_dir)
 
 
-def trim_data(df: pd.DataFrame, num_items: int) -> pd.DataFrame:
-    """Select top-N series by total sales volume across all time."""
+def trim_data(df: pd.DataFrame, num_items: int,
+              sampling: str = "top") -> pd.DataFrame:
+    """
+    Select series from the full dataset.
+
+    sampling:
+      "top"        — top-N by total sales volume (default, matches teammate)
+      "stratified" — equal thirds from top/middle/bottom of volume ranking.
+                     num_items is the per-stratum count, total = num_items * 3.
+                     Used for hyperparameter search to cover full distribution.
+      "all"        — entire dataset, num_items is ignored.
+                     Used for Phase 2 full training.
+    """
     if df.empty:
         return df
     df = df.copy()
     day_cols = [c for c in df.columns if c.startswith("d_")]
     df["total_sales_volume"] = df[day_cols].sum(axis=1)
-    trimmed_df = (
+    df_sorted = (
         df.sort_values("total_sales_volume", ascending=False)
-          .head(num_items)
+          .reset_index(drop=True)
+    )
+    total = len(df_sorted)
+
+    if sampling == "all":
+        trimmed_df = df_sorted
+        print(f"[data] Original items: {total} | Using full dataset (sampling=all)")
+
+    elif sampling == "stratified":
+        n         = num_items
+        mid_lo    = total // 2 - n // 2
+        mid_hi    = mid_lo + n
+        top_df    = df_sorted.iloc[:n]
+        middle_df = df_sorted.iloc[mid_lo:mid_hi]
+        bottom_df = df_sorted.iloc[total - n:]
+        trimmed_df = (
+            pd.concat([top_df, middle_df, bottom_df])
+              .drop_duplicates()
+              .reset_index(drop=True)
+        )
+        print(f"[data] Original items: {total} | "
+              f"Stratified {n}+{n}+{n} = {len(trimmed_df)} series")
+
+    else:  # "top" — default
+        trimmed_df = df_sorted.head(num_items)
+        print(f"[data] Original items: {total} | Selected top-{num_items} by volume")
+
+    trimmed_df = (
+        trimmed_df
           .drop(columns=["total_sales_volume"])
           .reset_index(drop=True)
     )
-    print(f"[data] Original items: {len(df)} | Selected top-{num_items} by volume")
     print(f"[data] Trimmed shape : {trimmed_df.shape}")
     return trimmed_df
 
@@ -261,6 +299,7 @@ class WindowedM5Dataset(Dataset):
         test_start_date,
         autoregressive: bool = True,
         max_series: int = None,
+        item_weights: np.ndarray = None,
     ):
         self.seq_len        = seq_len
         self.horizon        = horizon
@@ -269,6 +308,11 @@ class WindowedM5Dataset(Dataset):
         self.split          = split
         self.samples        = []
         self.series_data    = {}
+        # per-series revenue weights — only set for wquantile training loader
+        # None means return (x, y); array means return (x, y, weight)
+        self.item_weights   = item_weights
+        # build once for O(1) lookup in __getitem__ when weights are used
+        self._series_idx_map: dict = {}
 
         grouped    = df.groupby("id")
         series_ids = list(grouped.groups.keys())
@@ -310,6 +354,9 @@ class WindowedM5Dataset(Dataset):
         print(f"[data] {split}: {len(self.samples):,} windows  "
               f"(autoregressive={autoregressive})")
 
+        # build series index map once — used by __getitem__ for weight lookup
+        self._series_idx_map = {sid: i for i, sid in enumerate(self.series_data.keys())}
+
     def __len__(self):
         return len(self.samples)
 
@@ -318,9 +365,15 @@ class WindowedM5Dataset(Dataset):
         sub = self.series_data[sid]
         x = sub["features"][i : i + self.seq_len]
         if self.autoregressive:
-            y = sub["targets"][i + self.seq_len]          # scalar
+            y = sub["targets"][i + self.seq_len]
         else:
             y = sub["targets"][i + self.seq_len : i + self.seq_len + self.horizon]
+
+        if self.item_weights is not None:
+            series_idx = self._series_idx_map[sid]
+            w = torch.tensor(self.item_weights[series_idx], dtype=torch.float32)
+            return x, y, w
+
         return x, y
 
 
@@ -365,20 +418,28 @@ def build_dataloaders(
     max_series:     int  = None,
     num_workers:    int  = 2,
     seed:           int  = 42,
+    sampling:       str  = "top",
+    include_weights: bool = False,
 ) -> tuple:
     """
     Main data pipeline for V3.
 
     Parameters
     ----------
-    top_k_series   : Number of highest-volume series to keep (default 200).
-    feature_set    : One of "sales_only", "sales_hierarchy",
-                     "sales_hierarchy_dow".
-    autoregressive : True  -> 1-step ahead targets (recursive rollout at test)
-                     False -> horizon-length targets (direct multi-step)
-    use_normalise  : Apply log1p + optional z-score to sales target.
-                     False by default to match teammate's raw-count workflow.
-    zscore_target  : Only used when use_normalise=True.
+    top_k_series    : Number of series per stratum (stratified) or total (top/all).
+    sampling        : "top" — top-N by volume (default, matches teammate).
+                      "stratified" — top/middle/bottom thirds, top_k_series per stratum.
+                      "all" — full dataset, top_k_series ignored.
+    feature_set     : One of "sales_only", "sales_hierarchy", "sales_hierarchy_dow".
+    autoregressive  : True  -> 1-step ahead targets (recursive rollout at test)
+                      False -> horizon-length targets (direct multi-step)
+    use_normalise   : Apply log1p + optional z-score to sales target.
+                      False by default to match teammate's raw-count workflow.
+    zscore_target   : Only used when use_normalise=True.
+    include_weights : If True, train loader returns (x, y, weight) tuples where
+                      weight is the revenue weight for that series.
+                      Only set True for the weighted pinball model (wquantile_gru).
+                      Val/test loaders always return (x, y) regardless.
 
     Returns
     -------
@@ -393,7 +454,7 @@ def build_dataloaders(
     # 1. Load + trim
     # ------------------------------------------------------------------
     sales_df, calendar_df, prices_df = load_or_download_m5(data_dir)
-    sales_df = trim_data(sales_df, top_k_series)
+    sales_df = trim_data(sales_df, top_k_series, sampling=sampling)
 
     # ------------------------------------------------------------------
     # 2. Build featured dataframe — path depends on feature_set
@@ -443,7 +504,30 @@ def build_dataloaders(
         print("[data] No normalisation — using raw sales counts")
 
     # ------------------------------------------------------------------
-    # 5. Build windowed datasets
+    # 5. Compute revenue weights (only for weighted pinball training)
+    # ------------------------------------------------------------------
+    train_item_weights = None
+    if include_weights:
+        # Compute volume * avg_price per series, normalised to sum to 1
+        # Matches teammate's revenue weight methodology exactly
+        prices_df_w = prices_df.copy()
+        avg_prices   = (
+            prices_df_w.groupby(["item_id", "store_id"])["sell_price"]
+            .mean().reset_index()
+        )
+        sales_w = sales_df.merge(avg_prices, on=["item_id", "store_id"], how="left")
+        sales_w["sell_price"] = sales_w["sell_price"].fillna(
+            prices_df_w["sell_price"].median()
+        )
+        day_cols_w   = [c for c in sales_df.columns if c.startswith("d_")]
+        train_day_cols = day_cols_w[:-28]   # exclude test 28 days, same as teammate
+        item_vols    = sales_w[train_day_cols].sum(axis=1).values
+        item_revs    = item_vols * sales_w["sell_price"].values
+        train_item_weights = (item_revs / item_revs.sum()).astype(np.float32)
+        print(f"[data] Revenue weights computed ({len(train_item_weights)} series)")
+
+    # ------------------------------------------------------------------
+    # 6. Build windowed datasets
     # ------------------------------------------------------------------
     shared = dict(
         feature_cols    = feature_cols,
@@ -454,12 +538,14 @@ def build_dataloaders(
         autoregressive  = autoregressive,
         max_series      = max_series,
     )
-    train_ds = WindowedM5Dataset(featured, split="train", **shared)
+    # weights only on train — val and test always return (x, y)
+    train_ds = WindowedM5Dataset(featured, split="train",
+                                 item_weights=train_item_weights, **shared)
     val_ds   = WindowedM5Dataset(featured, split="val",   **shared)
     test_ds  = WindowedM5Dataset(featured, split="test",  **shared)
 
     # ------------------------------------------------------------------
-    # 6. DataLoaders
+    # 7. DataLoaders
     # ------------------------------------------------------------------
     _pin = torch.cuda.is_available()
     train_loader = DataLoader(

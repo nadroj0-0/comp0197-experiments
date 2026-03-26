@@ -81,7 +81,7 @@ def init_optimiser(model, method, **kwargs):
     return optim_method
 
 
-def evaluate_model(data_loader, model, criterion, training_step=None):
+def evaluate_model(data_loader, model, criterion, training_step=None, **kwargs):
     model.eval()
     total_loss = 0.0
     total_samples = 0
@@ -92,7 +92,7 @@ def evaluate_model(data_loader, model, criterion, training_step=None):
             inputs = inputs.to(device)
             labels = labels.to(device)
             if training_step is not None:
-                loss, outputs = training_step(model, inputs, labels, criterion)
+                loss, outputs = training_step(model, inputs, labels, criterion, **kwargs)
             else:
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
@@ -132,7 +132,15 @@ def train_model(epochs, train_loader, val_loader, model, criterion, optim_method
         epoch_train_correct = 0
         epoch_train_samples = 0
 
-        for i, (inputs, labels) in enumerate(train_loader):
+        for i, batch in enumerate(train_loader):
+            # support both (x, y) and (x, y, weight) batches
+            # weight is used by wquantile_gru_step for weighted pinball loss
+            if len(batch) == 3:
+                inputs, labels, batch_weight = batch
+                kwargs["item_weights"] = batch_weight.to(device, non_blocking=True)
+            else:
+                inputs, labels = batch
+                kwargs.pop("item_weights", None)
             inputs = inputs.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
             optim_method.zero_grad()
@@ -180,7 +188,8 @@ def train_model(epochs, train_loader, val_loader, model, criterion, optim_method
         train_loss = (epoch_train_loss_sum / epoch_train_samples).item()
         if accuracy_valid:
             train_accuracy = epoch_train_correct / epoch_train_samples
-        val_loss, val_accuracy, val_preds, val_targets = evaluate_model(val_loader, model, criterion, training_step=training_step)
+        eval_kwargs = {k: v for k, v in kwargs.items() if k != "item_weights"}
+        val_loss, val_accuracy, val_preds, val_targets = evaluate_model(val_loader, model, criterion, training_step=training_step, **eval_kwargs)
         if scheduler is not None:
             scheduler.step(val_loss)
         epoch_record = {
@@ -457,3 +466,45 @@ def gaussian_nll_loss(mu, sigma, targets, sigma_reg=0.0):
     if sigma_reg > 0.0:
         nll = nll + sigma_reg * sigma.mean()
     return nll
+def pinball_loss(preds, targets, quantiles):
+    """
+    Pinball (quantile) loss.
+    preds    : (batch, n_quantiles) — raw model output
+    targets  : (batch,) or (batch, 1)
+    quantiles: list of floats e.g. [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
+
+    Reduction: mean over batch, sum over quantiles — matches teammate's
+    PinballLoss.forward() so loss scales are comparable across models.
+    """
+    if targets.dim() == 1:
+        targets = targets.unsqueeze(1)                      # (B, 1)
+    q = torch.tensor(quantiles, dtype=torch.float32,
+                     device=preds.device).unsqueeze(0)      # (1, Q)
+    errors = targets - preds                                # (B, Q)
+    loss   = torch.max((q - 1) * errors, q * errors)       # (B, Q)
+    return loss.mean(dim=0).sum()                           # mean over batch, sum over Q
+
+
+def weighted_pinball_loss(preds, targets, weights, quantiles):
+    """
+    Revenue-weighted pinball loss.
+    preds    : (batch, n_quantiles)
+    targets  : (batch,) or (batch, 1)
+    weights  : (batch,) — per-item revenue weights, sum to 1 across dataset
+    quantiles: list of floats
+
+    Reduction: weighted sum over batch (weights sum to 1 so this is a
+    weighted mean), then sum over quantiles. Matches teammate's fix —
+    simple mean(dim=0) was wrong because it ignored the weight magnitudes;
+    summing weighted losses gives the true revenue-weighted expectation.
+    """
+    if targets.dim() == 1:
+        targets = targets.unsqueeze(1)                          # (B, 1)
+    if weights.dim() == 1:
+        weights = weights.unsqueeze(1)                          # (B, 1)
+    q = torch.tensor(quantiles, dtype=torch.float32,
+                     device=preds.device).unsqueeze(0)          # (1, Q)
+    errors        = targets - preds                             # (B, Q)
+    loss_per_q    = torch.max((q - 1) * errors, q * errors)    # (B, Q)
+    weighted_loss = loss_per_q * weights                        # (B, Q)
+    return weighted_loss.sum(dim=0).sum()                       # weighted sum over batch, sum over Q

@@ -38,3 +38,39 @@ def prob_nb_step(model, inputs, labels, criterion, **kwargs):
     return loss, mu
 
 prob_nb_step.valid_train_accuracy = False
+
+
+def quantile_gru_step(model, inputs, labels, criterion, **kwargs):
+    """
+    Training step for quantile GRU (unweighted pinball loss).
+    Returns median quantile as outputs so extra_metrics (rmse, mae etc.)
+    receive a scalar point forecast per sample, not all 7 quantiles.
+    """
+    quantiles = kwargs["quantiles"]
+    preds     = model(inputs)                                   # (B, Q)
+    loss      = criterion(preds, labels, quantiles)
+    median_idx = quantiles.index(0.5) if 0.5 in quantiles else len(quantiles) // 2
+    return loss, preds[:, median_idx]                           # (B,)
+
+quantile_gru_step.valid_train_accuracy = False
+
+
+def wquantile_gru_step(model, inputs, labels, criterion, **kwargs):
+    """
+    Training step for revenue-weighted quantile GRU (weighted pinball loss).
+    Falls back to unweighted pinball during val/test when item_weights absent.
+    Returns median quantile as outputs so extra_metrics receive a scalar
+    point forecast per sample.
+    """
+    from utils.common import pinball_loss
+    quantiles  = kwargs["quantiles"]
+    preds      = model(inputs)                                  # (B, Q)
+    if "item_weights" in kwargs:
+        item_weights = kwargs["item_weights"]
+        loss = criterion(preds, labels, item_weights, quantiles)
+    else:
+        loss = pinball_loss(preds, labels, quantiles)
+    median_idx = quantiles.index(0.5) if 0.5 in quantiles else len(quantiles) // 2
+    return loss, preds[:, median_idx]                           # (B,)
+
+wquantile_gru_step.valid_train_accuracy = False

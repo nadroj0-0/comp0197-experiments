@@ -2,110 +2,103 @@
 # test.py — Forecast Evaluation & Visualisation — V3
 # COMP0197 Applied Deep Learning
 # GenAI Note: Scaffolded with Claude (Anthropic). Verified by authors.
+#
+# Infrastructure runner — reads all config from YAML files.
+# The only line you should ever edit here is RUN_NAME below.
+#
+# Usage:
+#   python test.py
+#   python test.py --run_name sales_only_top200
+#   python test.py --experiment configs/experiment.yml
 # =============================================================================
 
+import argparse
 import json
+import sys
+import pandas as pd
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from utils.network import (
-    build_gru, build_lstm, build_transformer,
-    build_prob_gru, build_prob_lstm, build_prob_transformer,
-    build_prob_gru_nb, build_baseline_gru, build_baseline_prob_gru,
-    build_baseline_prob_gru_nb,
+sys.path.append(str(Path(__file__).resolve().parents[0]))
+
+from utils.config_loader import (
+    load_experiment,
+    load_registry,
+    load_model_config,
+    resolve_registry_entry,
+    get_model_run_dir,
 )
-from utils.data import build_dataloaders, denormalise
-from utils.training_strategies import gru_step, prob_gru_step, prob_nb_step
-import pandas as pd
+from utils.data import build_dataloaders, denormalise, get_feature_cols
+
+PROJECT_DIR     = Path(__file__).resolve().parent
+EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
+REGISTRY_PATH   = PROJECT_DIR / "configs" / "registry.yml"
+
+DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+QUANTILES = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
 
 # =============================================================================
-# CONFIGURATION — add/remove entries to control which models get evaluated
+# THE ONLY LINE YOU EDIT — which run to evaluate
+# Must match the run_name used during training
+# Can also be overridden via --run_name CLI argument
 # =============================================================================
+RUN_NAME = "baseline_ablation_sales_only"
 
-TEST_CONFIGS = [
-    {"model_type": "baseline_gru", "probabilistic": False},
-    {"model_type": "baseline_gru", "probabilistic": True},
-    {"model_type": "gru",         "probabilistic": False},
-    {"model_type": "gru",         "probabilistic": True},
-    {"model_type": "lstm",        "probabilistic": False},
-    {"model_type": "lstm",        "probabilistic": True},
-    {"model_type": "transformer", "probabilistic": False},
-    {"model_type": "transformer", "probabilistic": True},
-    {"model_type": "baseline_gru_nb", "probabilistic": True},
-    {"model_type": "gru_nb",      "probabilistic": True},
-]
-
-QUANTILES  = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
-MODELS_DIR = Path("./models")
-DEVICE     = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
 
+
 # =============================================================================
-# MODEL REGISTRY — (builder, training_step, is_prob, is_nb)
+# CLI
 # =============================================================================
 
-MODEL_REGISTRY = {
-    "baseline_gru_det": (build_baseline_gru,      gru_step,      False, False),
-    "baseline_gru_prob":(build_baseline_prob_gru, prob_gru_step, True,  False),
-    "gru_det":          (build_gru,              gru_step,       False, False),
-    "lstm_det":         (build_lstm,             gru_step,       False, False),
-    "transformer_det":  (build_transformer,      gru_step,       False, False),
-    "gru_prob":         (build_prob_gru,         prob_gru_step,  True,  False),
-    "lstm_prob":        (build_prob_lstm,        prob_gru_step,  True,  False),
-    "transformer_prob": (build_prob_transformer, prob_gru_step,  True,  False),
-    "baseline_gru_nb_prob": (build_baseline_prob_gru_nb, prob_nb_step, True, True),
-    "gru_nb_prob":      (build_prob_gru_nb,      prob_nb_step,   True,  True),
-}
-
-def model_name_from_cfg(cfg):
-    is_prob = cfg["probabilistic"]
-    model_type = cfg["model_type"]
-    suffix = "prob" if is_prob else "det"
-    return f"{model_type}_{suffix}"
+def parse_args():
+    p = argparse.ArgumentParser(description="M5 Test V3")
+    p.add_argument("--run_name",   type=str, default=None,
+                   help="Override RUN_NAME (default: value set in test.py)")
+    p.add_argument("--experiment", type=str, default=str(EXPERIMENT_PATH),
+                   help="Path to experiment.yml (default: configs/experiment.yml)")
+    return p.parse_args()
 
 
 # =============================================================================
-# REVENUE WEIGHTS — matches teammate's methodology exactly
-# weight_i = (train_volume_i * avg_price_i) / sum(all revenues)
+# REVENUE WEIGHTS
 # =============================================================================
 
-def compute_item_weights(data_dir: str, top_k: int) -> np.ndarray:
+def compute_item_weights(data_dir: str, top_k: int,
+                         sampling: str = "all") -> np.ndarray:
     """
-    Compute per-item revenue weights for the top-k series.
-    Matches teammate's preprocess_lstm_data_with_revenue_weights exactly:
-      - Select top-k items by total sales volume
-      - Merge average sell price per (item_id, store_id)
-      - weight_i = volume_i * price_i, normalised to sum to 1
-    Returns array of shape (top_k,) in the same order as the data pipeline.
+    Compute per-item revenue weights matching the eval dataset exactly.
+    sampling="all" → all series; sampling="top" → top-k by volume.
     """
     sales_df  = pd.read_csv(f"{data_dir}/sales_train_evaluation.csv")
     prices_df = pd.read_csv(f"{data_dir}/sell_prices.csv")
 
-    # Replicate trim_data — top-k by total volume
     day_cols = [c for c in sales_df.columns if c.startswith("d_")]
+    sales_df = sales_df.copy()
     sales_df["total_sales_volume"] = sales_df[day_cols].sum(axis=1)
     sales_df = (
         sales_df.sort_values("total_sales_volume", ascending=False)
-        .head(top_k)
         .reset_index(drop=True)
     )
 
-    # Average price per (item_id, store_id) — same as teammate
+    if sampling != "all":
+        sales_df = sales_df.head(top_k).reset_index(drop=True)
+
     avg_prices = (
         prices_df.groupby(["item_id", "store_id"])["sell_price"]
-        .mean()
-        .reset_index()
+        .mean().reset_index()
     )
     sales_df = sales_df.merge(avg_prices, on=["item_id", "store_id"], how="left")
-    sales_df["sell_price"] = sales_df["sell_price"].fillna(prices_df["sell_price"].median())
+    sales_df["sell_price"] = sales_df["sell_price"].fillna(
+        prices_df["sell_price"].median()
+    )
 
-    # Train split volume — exclude last 28 days (test window), same as teammate
     train_day_cols = day_cols[:-28]
     item_volumes   = sales_df[train_day_cols].sum(axis=1).values
     item_revenues  = item_volumes * sales_df["sell_price"].values
-    item_weights   = item_revenues / item_revenues.sum()  # normalise to sum to 1
+    item_weights   = item_revenues / item_revenues.sum()
 
     return item_weights.astype(np.float32)
 
@@ -115,31 +108,25 @@ def compute_item_weights(data_dir: str, top_k: int) -> np.ndarray:
 # =============================================================================
 
 def nb_params_to_quantiles(mu, alpha, quantiles, n_samples=1000):
-    mu_t    = torch.tensor(mu,    dtype=torch.float32).clamp(min=1e-6)
-    alpha_t = torch.tensor(alpha, dtype=torch.float32).clamp(min=1e-6)
+    mu_t     = torch.tensor(mu,    dtype=torch.float32).clamp(min=1e-6)
+    alpha_t  = torch.tensor(alpha, dtype=torch.float32).clamp(min=1e-6)
     variance = mu_t + alpha_t * mu_t ** 2
-    p = (mu_t / variance).clamp(min=1e-6, max=1 - 1e-6)
-    r = (mu_t * p / (1 - p)).clamp(min=1e-6)
-    dist   = torch.distributions.NegativeBinomial(total_count=r, probs=p)
-    samples = dist.sample((n_samples,)).float()
-    q_vals  = torch.quantile(
-        samples,
-        torch.tensor(quantiles, dtype=torch.float32),
-        dim=0,
+    p        = (mu_t / variance).clamp(min=1e-6, max=1 - 1e-6)
+    r        = (mu_t * p / (1 - p)).clamp(min=1e-6)
+    dist     = torch.distributions.NegativeBinomial(total_count=r, probs=p)
+    samples  = dist.sample((n_samples,)).float()
+    q_vals   = torch.quantile(
+        samples, torch.tensor(quantiles, dtype=torch.float32), dim=0
     )
-    return q_vals.permute(1, 0).cpu().numpy()  # (horizon, Q)
+    return q_vals.permute(1, 0).cpu().numpy()
 
 
 # =============================================================================
 # AUTOREGRESSIVE INFERENCE
 # =============================================================================
 
-def predict_autoregressive(model, seed_window, horizon, is_prob, is_nb, device):
-    """
-    Recursive 28-step rollout from a seed window.
-    seed_window : (seq_len, n_features) numpy array
-    Returns preds (horizon,) and aux (horizon,) or None
-    """
+def predict_autoregressive(model, seed_window, horizon, is_prob, is_nb, device,
+                           is_quantile=False, quantile_median_idx=3):
     model.eval()
     current_window = seed_window.copy()
     preds, aux_list = [], []
@@ -158,8 +145,14 @@ def predict_autoregressive(model, seed_window, horizon, is_prob, is_nb, device):
                 mu, sigma = model(x_t)
                 step_pred = float(mu.cpu().numpy()[0, 0])
                 step_aux  = float(sigma.cpu().numpy()[0, 0])
+            elif is_quantile:
+                # output is (B, Q) — use median as point forecast,
+                # store full quantile row for confidence intervals
+                out       = model(x_t).cpu().numpy()[0]         # (Q,)
+                step_pred = float(out[quantile_median_idx])
+                step_aux  = out                                  # (Q,) — all quantiles
             else:
-                out = model(x_t)
+                out       = model(x_t)
                 step_pred = float(out.cpu().numpy()[0, 0])
                 step_aux  = None
 
@@ -168,12 +161,12 @@ def predict_autoregressive(model, seed_window, horizon, is_prob, is_nb, device):
         if step_aux is not None:
             aux_list.append(step_aux)
 
-        # Slide window — update sales (index 0) with prediction
         new_row    = current_window[-1].copy()
         new_row[0] = step_pred
         current_window = np.vstack([current_window[1:], new_row])
 
     return np.array(preds), (np.array(aux_list) if aux_list else None)
+    # for quantile models aux is (horizon, Q) — matches direct inference shape
 
 
 # =============================================================================
@@ -201,15 +194,12 @@ def plot_quantile_forecast(historical_y, true_y, pred_quantiles, quantiles_list,
             color="black", linestyle="--", linewidth=1.5, marker="x")
     ax.axvline(x=seq_len, color="red", linestyle=":", linewidth=2,
                label="Forecast Start (Unseen Data)")
-    ax.fill_between(time_pred,
-                    pred_quantiles[:, idx_025], pred_quantiles[:, idx_975],
-                    color="blue", alpha=0.10, label="95% CI")
-    ax.fill_between(time_pred,
-                    pred_quantiles[:, idx_050], pred_quantiles[:, idx_950],
-                    color="blue", alpha=0.20, label="90% CI")
-    ax.fill_between(time_pred,
-                    pred_quantiles[:, idx_250], pred_quantiles[:, idx_750],
-                    color="blue", alpha=0.35, label="50% CI")
+    ax.fill_between(time_pred, pred_quantiles[:, idx_025],
+                    pred_quantiles[:, idx_975], color="blue", alpha=0.10, label="95% CI")
+    ax.fill_between(time_pred, pred_quantiles[:, idx_050],
+                    pred_quantiles[:, idx_950], color="blue", alpha=0.20, label="90% CI")
+    ax.fill_between(time_pred, pred_quantiles[:, idx_250],
+                    pred_quantiles[:, idx_750], color="blue", alpha=0.35, label="50% CI")
     ax.plot(time_pred, pred_quantiles[:, idx_500],
             label="Median Forecast", color="blue", linewidth=2, marker="o")
 
@@ -271,7 +261,8 @@ def plot_training_curves(hist_path, model_name, save_path=None):
     if n_plots == 1:
         axes = [axes]
     axes[0].plot(epochs, train_loss, label="Train Loss", color="black", linewidth=2)
-    axes[0].plot(epochs, val_loss,   label="Val Loss",   color="blue",  linewidth=2, linestyle="--")
+    axes[0].plot(epochs, val_loss,   label="Val Loss",   color="blue",
+                 linewidth=2, linestyle="--")
     axes[0].set_title("Loss", fontsize=12, fontweight="bold")
     axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("Loss")
     axes[0].legend(); axes[0].grid(alpha=0.3)
@@ -299,19 +290,37 @@ def plot_training_curves(hist_path, model_name, save_path=None):
 # SINGLE MODEL EVALUATION
 # =============================================================================
 
-def evaluate_model(model_name, builder, is_prob, is_nb):
-    model_dir  = MODELS_DIR / model_name
+def evaluate_model(model_name: str, run_dir: Path,
+                   exp_eval: dict, registry: dict) -> dict | None:
+    """
+    Evaluate a single model from a run directory.
+
+    Data settings come from experiment.yml eval block — not the saved
+    model config — so we always evaluate on the full dataset regardless
+    of what subset the model was trained or searched on.
+    """
+    model_dir  = get_model_run_dir(run_dir, model_name)
     model_path = model_dir / f"{model_name}_model.pt"
     hist_path  = model_dir / f"{model_name}_train_history.json"
 
     if not model_path.exists():
-        print(f"  [SKIP] {model_name} — model file not found")
+        print(f"  [SKIP] {model_name} — model file not found at {model_path}")
         return None
     if not hist_path.exists():
-        print(f"  [SKIP] {model_name} — history file not found")
+        print(f"  [SKIP] {model_name} — history file not found at {hist_path}")
         return None
 
-    # Load config
+    # resolve builder and flags from registry
+    if model_name not in registry:
+        print(f"  [SKIP] {model_name} — not in registry.yml")
+        return None
+    resolved    = resolve_registry_entry(registry[model_name])
+    builder     = resolved["builder"]
+    is_prob     = resolved["is_prob"]
+    is_nb       = resolved["is_nb"]
+    is_quantile = resolved["is_quantile"]
+
+    # load saved config for model architecture params
     with open(hist_path) as f:
         saved = json.load(f)
     cfg = saved.get("config", {})
@@ -319,43 +328,58 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
         print(f"  [SKIP] {model_name} — no config in history JSON")
         return None
 
-    autoregressive = cfg.get("autoregressive", False)
-    horizon        = cfg.get("horizon", 28)
-    seq_len        = cfg.get("seq_len",  28)
-    use_normalise  = cfg.get("use_normalise", False)
+    # model params from saved config; data params from eval block
+    autoregressive = bool(cfg.get("autoregressive", True))
+    horizon        = int(cfg.get("horizon",         28))
+    seq_len        = int(cfg.get("seq_len",          28))
+    use_normalise  = bool(cfg.get("use_normalise",  False))
+    # feature_set for data loading must match training — a sales_only model
+    # cannot accept sales_hierarchy_dow inputs. eval block can override
+    # top_k_series and sampling (which series to eval on) but NOT feature_set.
+    feature_set    = str(cfg.get("feature_set", "sales_only"))
+    top_k_series   = int(exp_eval.get("top_k_series",   30490))
+    sampling       = str(exp_eval.get("sampling",        "all"))
+    data_dir       = str(exp_eval.get("data_dir",    "./data"))
 
-    # Load test data — always autoregressive=False to get full 28-day targets
+    # load test data — autoregressive=False to get full 28-day targets
     _, _, test_loader, stats = build_dataloaders(
-        data_dir       = cfg.get("data_dir",     "./data"),
+        data_dir       = data_dir,
         seq_len        = seq_len,
         horizon        = horizon,
-        batch_size     = cfg.get("batch_size",   256),
-        top_k_series   = cfg.get("top_k_series", 200),
-        feature_set    = cfg.get("feature_set",  "sales_only"),
+        batch_size     = int(cfg.get("batch_size", 256)),
+        top_k_series   = top_k_series,
+        feature_set    = feature_set,
         autoregressive = False,
         use_normalise  = use_normalise,
+        sampling       = sampling,
         zscore_target  = not is_prob,
         max_series     = cfg.get("max_series"),
         num_workers    = 0,
-        seed           = cfg.get("seed", 42),
+        seed           = int(cfg.get("seed", 42)),
     )
 
-    # Load model
-    model, _, _, _ = builder(cfg)
+    # n_features must match what the model was trained with — use saved cfg,
+    # not the eval feature_set (which controls data loading only)
+    train_feature_set  = str(cfg.get("feature_set", "sales_only"))
+    cfg["n_features"]  = len(get_feature_cols(train_feature_set))
+    model, _, _, _     = builder(cfg)
     model.load_state_dict(
         torch.load(model_path, map_location=DEVICE, weights_only=True)
     )
     model.to(DEVICE)
     model.eval()
 
-    # Plots dir
     output_dir = model_dir / "plots"
     output_dir.mkdir(exist_ok=True)
 
     plot_training_curves(hist_path, model_name,
                          save_path=output_dir / f"{model_name}_training_curves.png")
 
-    # Inference
+    # quantile metadata
+    quantiles = cfg.get("quantiles", QUANTILES)
+    median_idx = quantiles.index(0.5) if 0.5 in quantiles else len(quantiles) // 2
+
+    # inference
     all_inputs, all_preds, all_targets, all_aux = [], [], [], []
 
     if autoregressive:
@@ -367,7 +391,8 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
                 for b in range(x.shape[0]):
                     seed = x[b].numpy()
                     p, a = predict_autoregressive(
-                        model, seed, horizon, is_prob, is_nb, DEVICE
+                        model, seed, horizon, is_prob, is_nb, DEVICE,
+                        is_quantile=is_quantile, quantile_median_idx=median_idx,
                     )
                     batch_preds.append(p)
                     if a is not None:
@@ -387,6 +412,12 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
                     mu, sigma = model(x)
                     all_preds.append(mu.cpu())
                     all_aux.append(sigma.cpu())
+                elif is_quantile:
+                    # output (B, Q) — store full quantile tensor for coverage/plots
+                    # median stored separately for point metrics
+                    q_out = model(x).cpu()             # (B, Q)
+                    all_preds.append(q_out[:, median_idx:median_idx+1])  # (B, 1) median
+                    all_aux.append(q_out)              # (B, Q) all quantiles
                 else:
                     all_preds.append(model(x).cpu())
                 all_inputs.append(x.cpu())
@@ -397,7 +428,7 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
     targets_np = torch.cat(all_targets).numpy()
     aux_np     = torch.cat(all_aux).numpy() if all_aux else None
 
-    # Denormalise
+    # denormalise
     if use_normalise:
         if is_nb:
             targets_orig = np.clip(targets_np, 0, 1e6)
@@ -415,7 +446,7 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
     targets_orig = np.clip(targets_orig, 0, 1e6)
     preds_orig   = np.clip(preds_orig,   0, 1e6)
 
-    # Metrics
+    # standard metrics
     rmse   = float(np.sqrt(((preds_orig - targets_orig) ** 2).mean()))
     mae    = float(np.abs(preds_orig - targets_orig).mean())
     mask   = targets_orig > 0
@@ -427,24 +458,23 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
     r2     = float(1 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
 
     print(f"  RMSE={rmse:.4f}  MAE={mae:.4f}  MAPE={mape:.2f}%  R²={r2:.4f}")
-
     metrics_dict = {"model": model_name, "rmse": rmse, "mae": mae, "mape": mape, "r2": r2}
 
-    # Weighted metrics — revenue weights matching teammate's methodology
+    # weighted metrics
     item_weights = compute_item_weights(
-        data_dir = cfg.get("data_dir", "./data"),
-        top_k    = cfg.get("top_k_series", 3048),
+        data_dir = data_dir,
+        top_k    = top_k_series,
+        sampling = sampling,
     )
-    # item_weights: (N,)  preds/targets: (N, horizon)
-    per_item_mse = ((preds_orig - targets_orig) ** 2).mean(axis=1)  # (N,)
-    per_item_mae = np.abs(preds_orig - targets_orig).mean(axis=1)  # (N,)
+    per_item_mse = ((preds_orig - targets_orig) ** 2).mean(axis=1)
+    per_item_mae = np.abs(preds_orig - targets_orig).mean(axis=1)
     w_rmse = float(np.sqrt((item_weights * per_item_mse).mean()))
-    w_mae = float((item_weights * per_item_mae).mean())
+    w_mae  = float((item_weights * per_item_mae).mean())
     print(f"  W-RMSE={w_rmse:.4f}  W-MAE={w_mae:.4f}")
     metrics_dict["w_rmse"] = w_rmse
     metrics_dict["w_mae"]  = w_mae
 
-    # Coverage for probabilistic models
+    # coverage for probabilistic models
     if is_nb and aux_np is not None:
         lower_all, upper_all = [], []
         for i in range(len(preds_np)):
@@ -472,11 +502,31 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
         metrics_dict["coverage_95"]    = coverage
         metrics_dict["interval_width"] = width
 
-    # Save metrics
+    elif is_quantile and aux_np is not None:
+        # aux_np shape:
+        #   autoregressive : (N, horizon, Q) — full quantile per step
+        #   direct         : (N, Q)          — single-step quantile output
+        idx_025 = quantiles.index(0.025) if 0.025 in quantiles else 0
+        idx_975 = quantiles.index(0.975) if 0.975 in quantiles else -1
+        if aux_np.ndim == 3:
+            # autoregressive: lower/upper per timestep then mean over horizon
+            lower_orig = np.clip(aux_np[:, :, idx_025], 0, 1e6)  # (N, horizon)
+            upper_orig = np.clip(aux_np[:, :, idx_975], 0, 1e6)
+        else:
+            # direct: single quantile value per item
+            lower_orig = np.clip(aux_np[:, idx_025:idx_025+1], 0, 1e6)
+            upper_orig = np.clip(aux_np[:, idx_975:idx_975+1], 0, 1e6)
+        coverage = float(((targets_orig >= lower_orig) & (targets_orig <= upper_orig)).mean())
+        width    = float((upper_orig - lower_orig).mean())
+        print(f"  Coverage(95%)={coverage:.4f}  Width={width:.4f}")
+        metrics_dict["coverage_95"]    = coverage
+        metrics_dict["interval_width"] = width
+
+    # save per-model metrics
     with open(model_dir / f"{model_name}_test_metrics.json", "w") as f:
         json.dump(metrics_dict, f, indent=2)
 
-    # Forecast plots — 5 representative series
+    # forecast plots
     labels     = ["best", "good", "median", "poor", "worst"]
     rmse_per   = np.sqrt(((preds_orig - targets_orig) ** 2).mean(axis=1))
     sorted_idx = np.argsort(rmse_per)
@@ -503,7 +553,9 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
         save_path = output_dir / f"{model_name}_sample_{labels[i]}.png"
 
         if is_nb and aux_np is not None:
-            q = nb_params_to_quantiles(preds_np[idx], aux_np[idx], QUANTILES, n_samples=500)
+            q = nb_params_to_quantiles(
+                preds_np[idx], aux_np[idx], QUANTILES, n_samples=500
+            )
             plot_quantile_forecast(hist, true, np.clip(q, 0, 500), QUANTILES,
                                    item_name=name, save_path=save_path, rmse=r)
         elif is_prob and aux_np is not None:
@@ -512,8 +564,10 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
             z_vals  = [-1.96, -1.645, -0.674, 0.0, 0.674, 1.645, 1.96]
             if use_normalise:
                 q_orig = np.clip(
-                    np.expm1(np.stack([mu_i + z * sigma_i for z in z_vals], axis=1).clip(0, 12.0)),
-                    0, 500
+                    np.expm1(
+                        np.stack([mu_i + z * sigma_i for z in z_vals], axis=1)
+                        .clip(0, 12.0)
+                    ), 0, 500
                 )
             else:
                 q_orig = np.clip(
@@ -521,6 +575,16 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
                     0, 500
                 )
             plot_quantile_forecast(hist, true, q_orig, QUANTILES,
+                                   item_name=name, save_path=save_path, rmse=r)
+        elif is_quantile and aux_np is not None:
+            if aux_np.ndim == 3:
+                # autoregressive: aux_np[idx] is (horizon, Q)
+                q_orig = np.clip(aux_np[idx], 0, 500)
+            else:
+                # direct: aux_np[idx] is (Q,) — reshape to (1, Q) won't plot well
+                # this case shouldn't occur since direct gives (N, Q) not (N, horizon, Q)
+                q_orig = np.clip(aux_np[idx].reshape(1, -1).repeat(horizon, axis=0), 0, 500)
+            plot_quantile_forecast(hist, true, q_orig, quantiles,
                                    item_name=name, save_path=save_path, rmse=r)
         else:
             plot_det_forecast(hist, true, pred,
@@ -530,36 +594,55 @@ def evaluate_model(model_name, builder, is_prob, is_nb):
 
 
 # =============================================================================
-# MAIN — loops over all TEST_CONFIGS
+# MAIN
 # =============================================================================
 
 def main():
-    print("=" * 60)
-    print("  BATCH EVALUATION — V3")
-    print("=" * 60)
+    args     = parse_args()
+    run_name = args.run_name or RUN_NAME
+    run_dir  = PROJECT_DIR / "runs" / run_name
+
+    if not run_dir.exists():
+        raise FileNotFoundError(
+            f"Run directory not found: {run_dir}\n"
+            f"Have you run train.py with run_name='{run_name}'?"
+        )
+
+    # load from the run snapshot — guarantees we use the exact config
+    # that was used during training, not whatever is currently in configs/
+    exp_cfg  = load_experiment(run_dir / "configs" / "experiment.yml")
+    registry = load_registry(REGISTRY_PATH)
+
+    exp_eval = exp_cfg.get("eval", {})
+    models   = exp_cfg.get("models", [])
+
+    if not models:
+        raise ValueError(f"No models in {run_dir}/configs/experiment.yml")
+
+    print(f"\n{'='*60}")
+    print(f"  BATCH EVALUATION — {run_name}")
+    print(f"  Models   : {models}")
+    print(f"  Eval data: sampling={exp_eval.get('sampling','all')} | "
+          f"top_k={exp_eval.get('top_k_series',30490)} | "
+          f"feature_set={exp_eval.get('feature_set','sales_only')}")
+    print(f"{'='*60}")
 
     all_results = []
 
-    for override in TEST_CONFIGS:
-        model_name = model_name_from_cfg(override)
-        is_prob    = override["probabilistic"]
-        is_nb      = override["model_type"] == "gru_nb"
-
-        if model_name not in MODEL_REGISTRY:
-            print(f"\n[SKIP] {model_name} — not in MODEL_REGISTRY")
-            continue
-
-        builder, _, _, _ = MODEL_REGISTRY[model_name]
-
+    for model_name in models:
         print(f"\n{'='*60}")
         print(f"  Evaluating: {model_name}")
         print(f"{'='*60}")
 
-        result = evaluate_model(model_name, builder, is_prob, is_nb)
+        result = evaluate_model(
+            model_name = model_name,
+            run_dir    = run_dir,
+            exp_eval   = exp_eval,
+            registry   = registry,
+        )
         if result is not None:
             all_results.append(result)
 
-    # Summary table
     if all_results:
         print(f"\n{'='*70}")
         print("  RESULTS SUMMARY")
@@ -577,12 +660,12 @@ def main():
             )
         print("=" * 70)
 
-        # Save combined results
-        with open(MODELS_DIR / "all_test_metrics.json", "w") as f:
+        out_path = run_dir / "all_test_metrics.json"
+        with open(out_path, "w") as f:
             json.dump(all_results, f, indent=2)
-        print(f"\n  Combined metrics saved: {MODELS_DIR / 'all_test_metrics.json'}")
+        print(f"\n  Combined metrics saved: {out_path}")
 
-    print(f"\n✅  Done — evaluated {len(all_results)}/{len(TEST_CONFIGS)} models")
+    print(f"\n  Done — evaluated {len(all_results)}/{len(models)} models")
 
 
 if __name__ == "__main__":

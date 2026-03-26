@@ -657,3 +657,87 @@ def build_baseline_prob_gru_nb(cfg):
         "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
     }
     return model, criterion, optimiser, training_kwargs
+
+
+class BaselineQuantileGRU(nn.Module):
+    """
+    Vanilla GRU baseline — quantile regression.
+    GRU → last hidden state → linear → (B, n_quantiles).
+    Same architecture as BaselineGRU, output head widened to n_quantiles.
+    No input projection, no LayerNorm, no residual connections.
+    """
+
+    def __init__(self, input_size=1, hidden_size=64,
+                 num_layers=1, dropout=0.0, n_quantiles=7):
+        super().__init__()
+        self.gru = nn.GRU(
+            input_size  = input_size,
+            hidden_size = hidden_size,
+            num_layers  = num_layers,
+            dropout     = dropout if num_layers > 1 else 0.0,
+            batch_first = True,
+        )
+        self.fc = nn.Linear(hidden_size, n_quantiles)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out, _ = self.gru(x)            # (B, T, H)
+        return self.fc(out[:, -1, :])   # (B, n_quantiles)
+
+
+QUANTILES = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
+
+
+def build_baseline_quantile_gru(cfg):
+    """
+    Builder for quantile baseline GRU (pinball loss, unweighted).
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, pinball_loss
+    quantiles = cfg.get("quantiles", QUANTILES)
+    model = BaselineQuantileGRU(
+        input_size  = _n_features(cfg),
+        hidden_size = int(cfg.get("hidden", 64)),
+        num_layers  = int(cfg.get("layers", 1)),
+        dropout     = float(cfg.get("dropout", 0.0)),
+        n_quantiles = len(quantiles),
+    ).to(device)
+    criterion = pinball_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault("clip_grad_norm", 1.0)
+    training_kwargs["disable_amp"] = True
+    training_kwargs["quantiles"]   = quantiles
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
+    }
+    return model, criterion, optimiser, training_kwargs
+
+
+def build_baseline_wquantile_gru(cfg):
+    """
+    Builder for revenue-weighted quantile baseline GRU (weighted pinball loss).
+    Same architecture as build_baseline_quantile_gru — only the loss differs.
+    item_weights are injected per-batch by the training loop in common.py.
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, weighted_pinball_loss
+    quantiles = cfg.get("quantiles", QUANTILES)
+    model = BaselineQuantileGRU(
+        input_size  = _n_features(cfg),
+        hidden_size = int(cfg.get("hidden", 64)),
+        num_layers  = int(cfg.get("layers", 1)),
+        dropout     = float(cfg.get("dropout", 0.0)),
+        n_quantiles = len(quantiles),
+    ).to(device)
+    criterion = weighted_pinball_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault("clip_grad_norm", 1.0)
+    training_kwargs["disable_amp"] = True
+    training_kwargs["quantiles"]   = quantiles
+    # item_weights key is intentionally absent here — common.py injects it
+    # per-batch from the (x, y, weight) tuple returned by the weighted loader
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
+    }
+    return model, criterion, optimiser, training_kwargs
