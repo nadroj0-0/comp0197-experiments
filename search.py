@@ -84,25 +84,25 @@ def _load_search_data(exp_search: dict, exp_train: dict, first_model_cfg: dict) 
 
     if not use_norm:
         # single loader — all models share it (raw counts, no zscore)
-        train_loader, val_loader, _, stats = build_dataloaders(**data_kwargs)
-        train_loader_w, _, _, _            = build_dataloaders(**data_kwargs, include_weights=True)
+        train_loader, val_loader, _, stats, vocab_sizes = build_dataloaders(**data_kwargs)
+        train_loader_w, _, _, _, _            = build_dataloaders(**data_kwargs, include_weights=True)
         return dict(
             train_loader_det       = train_loader,   val_loader_det   = val_loader, stats_det   = stats,
             train_loader_gauss     = train_loader,   val_loader_gauss = val_loader, stats_gauss = stats,
             train_loader_nb        = train_loader,   val_loader_nb    = val_loader, stats_nb    = stats,
-            train_loader_wquantile = train_loader_w,
+            train_loader_wquantile = train_loader_w, vocab_sizes = vocab_sizes,
         )
     else:
         # three loaders — det gets zscore, prob and NB get raw log1p
-        tl_det,   vl_det,   _, s_det   = build_dataloaders(**data_kwargs, zscore_target=True)
-        tl_gauss, vl_gauss, _, s_gauss = build_dataloaders(**data_kwargs, zscore_target=False)
-        tl_nb,    vl_nb,    _, s_nb    = build_dataloaders(**data_kwargs, zscore_target=False)
-        tl_w,     _,        _, _       = build_dataloaders(**data_kwargs, zscore_target=True, include_weights=True)
+        tl_det,   vl_det,   _, s_det, vocab_sizes   = build_dataloaders(**data_kwargs, zscore_target=True)
+        tl_gauss, vl_gauss, _, s_gauss, _ = build_dataloaders(**data_kwargs, zscore_target=False)
+        tl_nb,    vl_nb,    _, s_nb, _    = build_dataloaders(**data_kwargs, zscore_target=False)
+        tl_w,     _,        _, _, _       = build_dataloaders(**data_kwargs, zscore_target=True, include_weights=True)
         return dict(
             train_loader_det       = tl_det,   val_loader_det   = vl_det,   stats_det   = s_det,
             train_loader_gauss     = tl_gauss, val_loader_gauss = vl_gauss, stats_gauss = s_gauss,
             train_loader_nb        = tl_nb,    val_loader_nb    = vl_nb,    stats_nb    = s_nb,
-            train_loader_wquantile = tl_w,
+            train_loader_wquantile = tl_w, vocab_sizes = vocab_sizes,
         )
 
 
@@ -118,6 +118,7 @@ def search_model(
     train_loader,
     val_loader,
     stats,
+    vocab_sizes:  dict,
 ) -> dict:
     """
     Run hyperparameter search for a single model using Experiment.search().
@@ -147,6 +148,9 @@ def search_model(
     # --- set n_features so builders size input layers correctly ---
     feature_set             = str(train_cfg.get("feature_set", "sales_only"))
     train_cfg["n_features"] = len(get_feature_cols(feature_set))
+    # --- inject vocab_sizes — hierarchical builders require this ---
+    # baseline builders ignore it safely (they don't read the key)
+    train_cfg["vocab_sizes"] = vocab_sizes
 
     # --- resolve builder and step from registry ---
     if model_name not in registry:
@@ -243,6 +247,7 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     first_model_yml = run_dir / "configs" / "models" / f"{models[0]}.yml"
     first_model_cfg = load_model_config(first_model_yml)
     loaders = _load_search_data(exp_search, exp_train, first_model_cfg)
+    vocab_sizes = loaders.get("vocab_sizes", {})
     print(f"[search] Data loaded. Starting search loop.\n")
 
     # ------------------------------------------------------------------
@@ -276,6 +281,7 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
             train_loader = tl,
             val_loader   = vl,
             stats        = st,
+            vocab_sizes=vocab_sizes,
         )
         all_best[model_name] = best
 

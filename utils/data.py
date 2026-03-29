@@ -67,6 +67,13 @@ def load_or_download_m5(data_dir: str):
             print(f"[data] Found local {key}")
     return load_raw_data(data_dir)
 
+def get_vocab_sizes(featured_df: pd.DataFrame) -> dict:
+    """
+    Compute vocabulary sizes for each hierarchy column.
+    Returns dict e.g. {'state_id_int': 3, 'store_id_int': 10, ...}
+    """
+    hierarchy_cols = ['state_id_int', 'store_id_int', 'cat_id_int', 'dept_id_int']
+    return {col: int(featured_df[col].max()) + 1 for col in hierarchy_cols}
 
 def trim_data(df: pd.DataFrame, num_items: int,
               sampling: str = "top") -> pd.DataFrame:
@@ -571,4 +578,16 @@ def build_dataloaders(
     print(f"[DEBUG] Val windows  : {len(val_ds):,}")
     print(f"[DEBUG] Test windows : {len(test_ds):,}")
 
-    return train_loader, val_loader, test_loader, stats
+    # ------------------------------------------------------------------
+    # 8. Compute vocab sizes for hierarchy embedding tables
+    # Only meaningful when hierarchy columns are present in feature_set.
+    # Returns empty dict for sales_only — builders check before use.
+    # ------------------------------------------------------------------
+    hierarchy_cols = ["state_id_int", "store_id_int", "cat_id_int", "dept_id_int"]
+    if any(c in feature_cols for c in hierarchy_cols):
+        vocab_sizes = get_vocab_sizes(featured)
+        print(f"[data] Vocab sizes  : { {k: v for k, v in vocab_sizes.items()} }")
+    else:
+        vocab_sizes = {}
+
+    return train_loader, val_loader, test_loader, stats, vocab_sizes

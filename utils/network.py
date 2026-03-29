@@ -741,3 +741,423 @@ def build_baseline_wquantile_gru(cfg):
         "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
     }
     return model, criterion, optimiser, training_kwargs
+
+# =============================================================================
+# HIERARCHICAL MODELS — GRU with learned embeddings for hierarchy columns
+# Replaces raw integer hierarchy features with dense embedding lookups.
+# Each hierarchy level (state, store, category, department) gets its own
+# embedding table. Sales and day-of-week are passed as raw floats.
+# Input x assumed to be (B, T, 6):
+#   col 0 : sales (float)
+#   col 1 : state_id_int  -> embedded
+#   col 2 : store_id_int  -> embedded
+#   col 3 : cat_id_int    -> embedded
+#   col 4 : dept_id_int   -> embedded
+#   col 5 : day_of_week   (float)
+# Effective GRU input size: 2 + 4 * embed_dim
+# =============================================================================
+
+class _HierarchyEmbedder(nn.Module):
+    """
+    Shared embedding block used by all hierarchical GRU variants.
+    Looks up learned dense vectors for each of the four hierarchy columns
+    and concatenates them with the raw sales and day-of-week features.
+
+    Args:
+        vocab_sizes (dict): Maps column name to number of unique values.
+                            Keys: 'state_id_int', 'store_id_int',
+                                  'cat_id_int', 'dept_id_int'.
+        embed_dim   (int):  Embedding dimension for each hierarchy level.
+
+    Input:
+        x (Tensor): Shape (B, T, 6) — raw model input.
+
+    Output:
+        Tensor: Shape (B, T, 2 + 4 * embed_dim) — embedded input ready
+                for the GRU encoder.
+    """
+    def __init__(self, vocab_sizes: dict, embed_dim: int = 8):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.state_emb = nn.Embedding(vocab_sizes['state_id_int'], embed_dim)
+        self.store_emb = nn.Embedding(vocab_sizes['store_id_int'], embed_dim)
+        self.cat_emb   = nn.Embedding(vocab_sizes['cat_id_int'],   embed_dim)
+        self.dept_emb  = nn.Embedding(vocab_sizes['dept_id_int'],  embed_dim)
+        self.output_dim = 2 + 4 * embed_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        sales = x[:, :, 0:1]
+        state = self.state_emb(x[:, :, 1].long())
+        store = self.store_emb(x[:, :, 2].long())
+        cat   = self.cat_emb(  x[:, :, 3].long())
+        dept  = self.dept_emb( x[:, :, 4].long())
+        dow   = x[:, :, 5:6]
+        return torch.cat([sales, state, store, cat, dept, dow], dim=-1)
+
+
+# -----------------------------------------------------------------------------
+# 1. Deterministic
+# -----------------------------------------------------------------------------
+
+class HierarchicalGRU(nn.Module):
+    """
+    Deterministic GRU with learned hierarchy embeddings.
+    Identical to BaselineGRU except raw integer hierarchy features are
+    replaced by dense embedding lookups via _HierarchyEmbedder.
+
+    Args:
+        hidden_size  (int):  GRU hidden state size.
+        num_layers   (int):  Number of stacked GRU layers.
+        dropout      (float):Dropout probability (applied between layers).
+        output_size  (int):  1 for autoregressive, horizon for direct.
+        vocab_sizes  (dict): Vocabulary sizes per hierarchy column.
+        embed_dim    (int):  Embedding dimension per hierarchy level.
+
+    Input:
+        x (Tensor): Shape (B, T, 6).
+
+    Output:
+        Tensor: Shape (B, output_size).
+    """
+    def __init__(self, hidden_size, num_layers, dropout,
+                 output_size, vocab_sizes, embed_dim=8):
+        super().__init__()
+        self.embedder = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.gru = nn.GRU(
+            input_size  = self.embedder.output_dim,
+            hidden_size = hidden_size,
+            num_layers  = num_layers,
+            batch_first = True,
+            dropout     = dropout if num_layers > 1 else 0.0,
+        )
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.embedder(x)
+        out, _ = self.gru(x)
+        return self.fc(out[:, -1, :])
+
+
+def build_hierarchical_gru(cfg: dict):
+    """
+    Builder for deterministic hierarchical GRU.
+    Requires cfg['vocab_sizes'] populated by train.py before this is called.
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2
+    model = HierarchicalGRU(
+        hidden_size = max(8, (int(cfg['hidden']) // 8) * 8),
+        num_layers  = int(cfg['layers']),
+        dropout     = float(cfg['dropout']),
+        output_size = _output_size(cfg),
+        vocab_sizes = cfg['vocab_sizes'],
+        embed_dim   = int(cfg.get('embed_dim', 8)),
+    ).to(device)
+    criterion = nn.MSELoss()
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault('clip_grad_norm', 1.0)
+    training_kwargs['extra_metrics'] = {
+        'val_rmse': rmse, 'val_mae': mae, 'val_mape': mape, 'val_r2': r2
+    }
+    return model, criterion, optimiser, training_kwargs
+
+
+# -----------------------------------------------------------------------------
+# 2. Probabilistic Gaussian
+# -----------------------------------------------------------------------------
+
+class HierarchicalProbGRU(nn.Module):
+    """
+    Probabilistic GRU (Gaussian NLL) with learned hierarchy embeddings.
+    Outputs (mu, sigma) per horizon step. Sigma is passed through Softplus
+    and clamped to prevent variance collapse or explosion.
+
+    Args:
+        hidden_size  (int):  GRU hidden state size.
+        num_layers   (int):  Number of stacked GRU layers.
+        dropout      (float):Dropout probability.
+        horizon      (int):  Forecast horizon length.
+        vocab_sizes  (dict): Vocabulary sizes per hierarchy column.
+        embed_dim    (int):  Embedding dimension per hierarchy level.
+
+    Input:
+        x (Tensor): Shape (B, T, 6).
+
+    Output:
+        tuple[Tensor, Tensor]: mu and sigma, each shape (B, horizon).
+    """
+    def __init__(self, hidden_size, num_layers, dropout,
+                 horizon, vocab_sizes, embed_dim=8):
+        super().__init__()
+        self.embedder   = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.gru = nn.GRU(
+            input_size  = self.embedder.output_dim,
+            hidden_size = hidden_size,
+            num_layers  = num_layers,
+            batch_first = True,
+            dropout     = dropout if num_layers > 1 else 0.0,
+        )
+        self.mu_head    = nn.Linear(hidden_size, horizon)
+        self.sigma_head = nn.Linear(hidden_size, horizon)
+        self.softplus   = nn.Softplus()
+
+    def forward(self, x: torch.Tensor):
+        x        = self.embedder(x)
+        out, _   = self.gru(x)
+        last     = out[:, -1, :]
+        mu       = self.mu_head(last)
+        sigma    = torch.clamp(self.softplus(self.sigma_head(last)),
+                               min=1e-3, max=5.0)
+        return mu, sigma
+
+
+def build_hierarchical_prob_gru(cfg: dict):
+    """
+    Builder for probabilistic hierarchical GRU (Gaussian NLL).
+    Requires cfg['vocab_sizes']. sigma_reg penalises mean sigma to
+    prevent variance collapse.
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, gaussian_nll_loss
+    model = HierarchicalProbGRU(
+        hidden_size = max(8, (int(cfg['hidden']) // 8) * 8),
+        num_layers  = int(cfg['layers']),
+        dropout     = float(cfg['dropout']),
+        horizon     = _output_size(cfg),
+        vocab_sizes = cfg['vocab_sizes'],
+        embed_dim   = int(cfg.get('embed_dim', 8)),
+    ).to(device)
+    criterion = gaussian_nll_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault('clip_grad_norm', 0.5)
+    training_kwargs['disable_amp'] = True
+    training_kwargs['extra_metrics'] = {
+        'val_rmse': rmse, 'val_mae': mae, 'val_mape': mape, 'val_r2': r2
+    }
+    training_kwargs.setdefault('sigma_reg', cfg.get('sigma_reg', 0.0))
+    return model, criterion, optimiser, training_kwargs
+
+
+# -----------------------------------------------------------------------------
+# 3. Probabilistic Negative Binomial
+# -----------------------------------------------------------------------------
+
+class HierarchicalProbGRU_NB(nn.Module):
+    """
+    Probabilistic GRU (Negative Binomial NLL) with learned hierarchy embeddings.
+    Outputs (mu, alpha) where mu is the predicted mean and alpha is the
+    dispersion parameter. Both passed through Softplus + epsilon floor to
+    ensure positivity and prevent alpha collapsing to zero (Poisson limit).
+
+    Args:
+        hidden_size  (int):  GRU hidden state size.
+        num_layers   (int):  Number of stacked GRU layers.
+        dropout      (float):Dropout probability.
+        horizon      (int):  Forecast horizon length.
+        vocab_sizes  (dict): Vocabulary sizes per hierarchy column.
+        embed_dim    (int):  Embedding dimension per hierarchy level.
+
+    Input:
+        x (Tensor): Shape (B, T, 6).
+
+    Output:
+        tuple[Tensor, Tensor]: mu and alpha, each shape (B, horizon).
+    """
+    def __init__(self, hidden_size, num_layers, dropout,
+                 horizon, vocab_sizes, embed_dim=8):
+        super().__init__()
+        self.embedder    = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.gru = nn.GRU(
+            input_size  = self.embedder.output_dim,
+            hidden_size = hidden_size,
+            num_layers  = num_layers,
+            batch_first = True,
+            dropout     = dropout if num_layers > 1 else 0.0,
+        )
+        self.mu_head    = nn.Linear(hidden_size, horizon)
+        self.alpha_head = nn.Linear(hidden_size, horizon)
+        self.softplus   = nn.Softplus()
+
+    def forward(self, x: torch.Tensor):
+        x      = self.embedder(x)
+        out, _ = self.gru(x)
+        last   = out[:, -1, :]
+        mu     = self.softplus(self.mu_head(last))    + 1e-6
+        alpha  = self.softplus(self.alpha_head(last)) + 1e-6
+        return mu, alpha
+
+
+def build_hierarchical_prob_gru_nb(cfg: dict):
+    """
+    Builder for probabilistic hierarchical GRU (Negative Binomial NLL).
+    Requires cfg['vocab_sizes']. NB NLL is the most numerically unstable
+    loss — clip_grad_norm is set tighter than det/Gaussian variants.
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, nb_nll_loss
+    model = HierarchicalProbGRU_NB(
+        hidden_size = max(8, (int(cfg['hidden']) // 8) * 8),
+        num_layers  = int(cfg['layers']),
+        dropout     = float(cfg['dropout']),
+        horizon     = _output_size(cfg),
+        vocab_sizes = cfg['vocab_sizes'],
+        embed_dim   = int(cfg.get('embed_dim', 8)),
+    ).to(device)
+    criterion = nb_nll_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault('clip_grad_norm', 0.5)
+    training_kwargs['disable_amp'] = True
+    training_kwargs['extra_metrics'] = {
+        'val_rmse': rmse, 'val_mae': mae, 'val_mape': mape, 'val_r2': r2
+    }
+    return model, criterion, optimiser, training_kwargs
+
+
+# -----------------------------------------------------------------------------
+# 4. Quantile Regression (Pinball Loss)
+# -----------------------------------------------------------------------------
+
+class HierarchicalQuantileGRU(nn.Module):
+    """
+    Quantile GRU with learned hierarchy embeddings.
+    Outputs n_quantiles values per sample. Non-parametric — makes no
+    distributional assumption. Median quantile used as point forecast
+    for RMSE/MAE comparison.
+
+    Args:
+        hidden_size  (int):  GRU hidden state size.
+        num_layers   (int):  Number of stacked GRU layers.
+        dropout      (float):Dropout probability.
+        n_quantiles  (int):  Number of output quantiles.
+        vocab_sizes  (dict): Vocabulary sizes per hierarchy column.
+        embed_dim    (int):  Embedding dimension per hierarchy level.
+
+    Input:
+        x (Tensor): Shape (B, T, 6).
+
+    Output:
+        Tensor: Shape (B, n_quantiles).
+    """
+    def __init__(self, hidden_size, num_layers, dropout,
+                 n_quantiles, vocab_sizes, embed_dim=8):
+        super().__init__()
+        self.embedder = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.gru = nn.GRU(
+            input_size  = self.embedder.output_dim,
+            hidden_size = hidden_size,
+            num_layers  = num_layers,
+            batch_first = True,
+            dropout     = dropout if num_layers > 1 else 0.0,
+        )
+        self.fc = nn.Linear(hidden_size, n_quantiles)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x      = self.embedder(x)
+        out, _ = self.gru(x)
+        return self.fc(out[:, -1, :])
+
+
+def build_hierarchical_quantile_gru(cfg: dict):
+    """
+    Builder for quantile hierarchical GRU (pinball loss, unweighted).
+    Requires cfg['vocab_sizes'].
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, pinball_loss
+    quantiles = cfg.get('quantiles', QUANTILES)
+    model = HierarchicalQuantileGRU(
+        hidden_size = max(8, (int(cfg['hidden']) // 8) * 8),
+        num_layers  = int(cfg['layers']),
+        dropout     = float(cfg['dropout']),
+        n_quantiles = len(quantiles),
+        vocab_sizes = cfg['vocab_sizes'],
+        embed_dim   = int(cfg.get('embed_dim', 8)),
+    ).to(device)
+    criterion = pinball_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault('clip_grad_norm', 1.0)
+    training_kwargs['disable_amp'] = True
+    training_kwargs['quantiles']   = quantiles
+    training_kwargs['extra_metrics'] = {
+        'val_rmse': rmse, 'val_mae': mae, 'val_mape': mape, 'val_r2': r2
+    }
+    return model, criterion, optimiser, training_kwargs
+
+
+# -----------------------------------------------------------------------------
+# 5. Revenue-Weighted Quantile
+# -----------------------------------------------------------------------------
+
+class HierarchicalWQuantileGRU(nn.Module):
+    """
+    Revenue-weighted quantile GRU with learned hierarchy embeddings.
+    Identical architecture to HierarchicalQuantileGRU — only the loss
+    differs (weighted pinball vs unweighted pinball).
+    item_weights are injected per-batch by the training loop in common.py
+    via the (x, y, weight) loader — not stored in the model itself.
+
+    Args:
+        hidden_size  (int):  GRU hidden state size.
+        num_layers   (int):  Number of stacked GRU layers.
+        dropout      (float):Dropout probability.
+        n_quantiles  (int):  Number of output quantiles.
+        vocab_sizes  (dict): Vocabulary sizes per hierarchy column.
+        embed_dim    (int):  Embedding dimension per hierarchy level.
+
+    Input:
+        x (Tensor): Shape (B, T, 6).
+
+    Output:
+        Tensor: Shape (B, n_quantiles).
+    """
+    def __init__(self, hidden_size, num_layers, dropout,
+                 n_quantiles, vocab_sizes, embed_dim=8):
+        super().__init__()
+        self.embedder = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.gru = nn.GRU(
+            input_size  = self.embedder.output_dim,
+            hidden_size = hidden_size,
+            num_layers  = num_layers,
+            batch_first = True,
+            dropout     = dropout if num_layers > 1 else 0.0,
+        )
+        self.fc = nn.Linear(hidden_size, n_quantiles)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x      = self.embedder(x)
+        out, _ = self.gru(x)
+        return self.fc(out[:, -1, :])
+
+
+def build_hierarchical_wquantile_gru(cfg: dict):
+    """
+    Builder for revenue-weighted quantile hierarchical GRU.
+    Same architecture as build_hierarchical_quantile_gru — only the
+    loss function differs (weighted_pinball_loss vs pinball_loss).
+    Requires cfg['vocab_sizes'].
+    Returns (model, criterion, optimiser, training_kwargs).
+    """
+    from utils.common import device, rmse, mae, mape, r2, weighted_pinball_loss
+    quantiles = cfg.get('quantiles', QUANTILES)
+    model = HierarchicalWQuantileGRU(
+        hidden_size = max(8, (int(cfg['hidden']) // 8) * 8),
+        num_layers  = int(cfg['layers']),
+        dropout     = float(cfg['dropout']),
+        n_quantiles = len(quantiles),
+        vocab_sizes = cfg['vocab_sizes'],
+        embed_dim   = int(cfg.get('embed_dim', 8)),
+    ).to(device)
+    criterion = weighted_pinball_loss
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs.setdefault('clip_grad_norm', 1.0)
+    training_kwargs['disable_amp'] = True
+    training_kwargs['quantiles']   = quantiles
+    training_kwargs['extra_metrics'] = {
+        'val_rmse': rmse, 'val_mae': mae, 'val_mape': mape, 'val_r2': r2
+    }
+    return model, criterion, optimiser, training_kwargs

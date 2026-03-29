@@ -61,6 +61,11 @@ models:
   - baseline_gru_nb
   - baseline_quantile_gru
   - baseline_wquantile_gru
+  #- hierarchical_gru_det
+  #- hierarchical_gru_prob
+  #- hierarchical_gru_nb
+  #- hierarchical_quantile_gru
+  #- hierarchical_wquantile_gru
   # - gru_det
   # - gru_prob
   # - gru_nb
