@@ -47,10 +47,12 @@ def quantile_gru_step(model, inputs, labels, criterion, **kwargs):
     receive a scalar point forecast per sample, not all 7 quantiles.
     """
     quantiles = kwargs["quantiles"]
-    preds     = model(inputs)                                   # (B, Q)
-    loss      = criterion(preds, labels, quantiles)
+    preds = model(inputs)  # (B, Q) or (B, H, Q)
+    loss = criterion(preds, labels, quantiles)
     median_idx = quantiles.index(0.5) if 0.5 in quantiles else len(quantiles) // 2
-    return loss, preds[:, median_idx]                           # (B,)
+    if preds.dim() == 3:
+        return loss, preds[:, :, median_idx]  # (B, H) — seq2seq median
+    return loss, preds[:, median_idx]  # (B,)   — autoregressive unchanged
 
 quantile_gru_step.valid_train_accuracy = False
 
@@ -71,6 +73,8 @@ def wquantile_gru_step(model, inputs, labels, criterion, **kwargs):
     else:
         loss = pinball_loss(preds, labels, quantiles)
     median_idx = quantiles.index(0.5) if 0.5 in quantiles else len(quantiles) // 2
-    return loss, preds[:, median_idx]                           # (B,)
+    if preds.dim() == 3:
+        return loss, preds[:, :, median_idx]  # (B, H)
+    return loss, preds[:, median_idx]  # (B,)
 
 wquantile_gru_step.valid_train_accuracy = False

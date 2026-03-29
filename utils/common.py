@@ -476,13 +476,22 @@ def pinball_loss(preds, targets, quantiles):
     Reduction: mean over batch, sum over quantiles — matches teammate's
     PinballLoss.forward() so loss scales are comparable across models.
     """
+    if preds.dim() == 3:
+        # seq2seq: preds (B, H, Q), targets (B, H)
+        targets = targets.unsqueeze(2)  # (B, H, 1)
+        q = torch.tensor(quantiles, dtype=torch.float32,
+                         device=preds.device).view(1, 1, -1)  # (1, 1, Q)
+        errors = targets - preds  # (B, H, Q)
+        loss = torch.max((q - 1) * errors, q * errors)  # (B, H, Q)
+        return loss.mean(dim=0).sum()  # mean over B, sum over H*Q
+        # original autoregressive path — untouched
     if targets.dim() == 1:
-        targets = targets.unsqueeze(1)                      # (B, 1)
+        targets = targets.unsqueeze(1)  # (B, 1)
     q = torch.tensor(quantiles, dtype=torch.float32,
-                     device=preds.device).unsqueeze(0)      # (1, Q)
-    errors = targets - preds                                # (B, Q)
-    loss   = torch.max((q - 1) * errors, q * errors)       # (B, Q)
-    return loss.mean(dim=0).sum()                           # mean over batch, sum over Q
+                     device=preds.device).unsqueeze(0)  # (1, Q)
+    errors = targets - preds  # (B, Q)
+    loss = torch.max((q - 1) * errors, q * errors)  # (B, Q)
+    return loss.mean(dim=0).sum()
 
 
 def weighted_pinball_loss(preds, targets, weights, quantiles):
@@ -498,13 +507,24 @@ def weighted_pinball_loss(preds, targets, weights, quantiles):
     simple mean(dim=0) was wrong because it ignored the weight magnitudes;
     summing weighted losses gives the true revenue-weighted expectation.
     """
+    if preds.dim() == 3:
+        # seq2seq: preds (B, H, Q), targets (B, H), weights (B,)
+        targets = targets.unsqueeze(2)  # (B, H, 1)
+        weights = weights.view(-1, 1, 1)  # (B, 1, 1)
+        q = torch.tensor(quantiles, dtype=torch.float32,
+                         device=preds.device).view(1, 1, -1)  # (1, 1, Q)
+        errors = targets - preds  # (B, H, Q)
+        loss_per_q = torch.max((q - 1) * errors, q * errors)  # (B, H, Q)
+        weighted_loss = loss_per_q * weights  # (B, H, Q)
+        return weighted_loss.sum(dim=0).sum()  # weighted sum over B, sum over H*Q
+        # original autoregressive path — untouched
     if targets.dim() == 1:
-        targets = targets.unsqueeze(1)                          # (B, 1)
+        targets = targets.unsqueeze(1)
     if weights.dim() == 1:
-        weights = weights.unsqueeze(1)                          # (B, 1)
+        weights = weights.unsqueeze(1)
     q = torch.tensor(quantiles, dtype=torch.float32,
-                     device=preds.device).unsqueeze(0)          # (1, Q)
-    errors        = targets - preds                             # (B, Q)
-    loss_per_q    = torch.max((q - 1) * errors, q * errors)    # (B, Q)
-    weighted_loss = loss_per_q * weights                        # (B, Q)
-    return weighted_loss.sum(dim=0).sum()                       # weighted sum over batch, sum over Q
+                     device=preds.device).unsqueeze(0)
+    errors = targets - preds
+    loss_per_q = torch.max((q - 1) * errors, q * errors)
+    weighted_loss = loss_per_q * weights
+    return weighted_loss.sum(dim=0).sum()

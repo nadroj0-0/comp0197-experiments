@@ -668,20 +668,25 @@ class BaselineQuantileGRU(nn.Module):
     """
 
     def __init__(self, input_size=1, hidden_size=64,
-                 num_layers=1, dropout=0.0, n_quantiles=7):
+                 num_layers=1, dropout=0.0, n_quantiles=7, horizon=1):
         super().__init__()
+        self.n_quantiles = n_quantiles
+        self.horizon = horizon
         self.gru = nn.GRU(
-            input_size  = input_size,
-            hidden_size = hidden_size,
-            num_layers  = num_layers,
-            dropout     = dropout if num_layers > 1 else 0.0,
-            batch_first = True,
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            batch_first=True,
         )
-        self.fc = nn.Linear(hidden_size, n_quantiles)
+        self.fc = nn.Linear(hidden_size, horizon * n_quantiles)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out, _ = self.gru(x)            # (B, T, H)
-        return self.fc(out[:, -1, :])   # (B, n_quantiles)
+        out, _ = self.gru(x)  # (B, T, H)
+        raw = self.fc(out[:, -1, :])  # (B, horizon*Q)
+        if self.horizon == 1:
+            return raw  # (B, Q) — autoregressive path unchanged
+        return raw.view(raw.size(0), self.horizon, self.n_quantiles)  # (B, H, Q)
 
 
 QUANTILES = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
@@ -695,11 +700,12 @@ def build_baseline_quantile_gru(cfg):
     from utils.common import device, rmse, mae, mape, r2, pinball_loss
     quantiles = cfg.get("quantiles", QUANTILES)
     model = BaselineQuantileGRU(
-        input_size  = _n_features(cfg),
-        hidden_size = int(cfg.get("hidden", 64)),
-        num_layers  = int(cfg.get("layers", 1)),
-        dropout     = float(cfg.get("dropout", 0.0)),
-        n_quantiles = len(quantiles),
+        input_size=_n_features(cfg),
+        hidden_size=int(cfg.get("hidden", 64)),
+        num_layers=int(cfg.get("layers", 1)),
+        dropout=float(cfg.get("dropout", 0.0)),
+        n_quantiles=len(quantiles),
+        horizon=_output_size(cfg),
     ).to(device)
     criterion = pinball_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -723,11 +729,12 @@ def build_baseline_wquantile_gru(cfg):
     from utils.common import device, rmse, mae, mape, r2, weighted_pinball_loss
     quantiles = cfg.get("quantiles", QUANTILES)
     model = BaselineQuantileGRU(
-        input_size  = _n_features(cfg),
-        hidden_size = int(cfg.get("hidden", 64)),
-        num_layers  = int(cfg.get("layers", 1)),
-        dropout     = float(cfg.get("dropout", 0.0)),
-        n_quantiles = len(quantiles),
+        input_size=_n_features(cfg),
+        hidden_size=int(cfg.get("hidden", 64)),
+        num_layers=int(cfg.get("layers", 1)),
+        dropout=float(cfg.get("dropout", 0.0)),
+        n_quantiles=len(quantiles),
+        horizon=_output_size(cfg),
     ).to(device)
     criterion = weighted_pinball_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
