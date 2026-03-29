@@ -231,8 +231,11 @@ def snapshot_configs(
             raise FileNotFoundError(
                 f"Model config not found for '{model_name}': {src}"
             )
-        shutil.copy2(src, dst)
-        print(f"[config] Snapshotted model config  → {dst}")
+        if not dst.exists():
+            shutil.copy2(src, dst)
+            print(f"[config] Snapshotted model config  → {dst}")
+        else:
+            print(f"[config] Skipping snapshot (already exists) → {dst}")
 
 
 # =============================================================================
