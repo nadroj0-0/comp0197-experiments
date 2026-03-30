@@ -1,0 +1,35 @@
+\section{Experiments}
+
+\subsection{Training Procedure}
+\todo{Summarise shared training setup (optimiser, epochs, early stopping, same conditions across models).}
+
+\subsubsection*{Pinball vs Revenue Weighted Pinball Loss}
+
+Quantile regression is trained using the pinball loss, which estimates conditional quantiles \( \tau \in (0,1) \):
+
+\begin{equation}
+\mathcal{L}_{\tau}(\hat{y}, y) =
+\begin{cases}
+\tau (y - \hat{y}) & \text{if } y \geq \hat{y} \\
+(1 - \tau)(\hat{y} - y) & \text{otherwise}
+\end{cases}
+\end{equation}
+
+This asymmetric loss enables direct learning of prediction intervals without assuming a parametric distribution.
+
+However, standard pinball loss treats all items equally, which is unsuitable for retail forecasting. Forecast errors have unequal business costs: underestimating high-revenue products leads to unmet demand and lost sales, while overestimation leads to excess inventory. These costs scale with price and volume.
+
+We therefore use a revenue-weighted variant:
+
+\begin{equation}
+\mathcal{L}_{\text{weighted}} =
+\sum_{i=1}^{N} w_i \sum_{\tau \in \mathcal{T}} \mathcal{L}_{\tau}(\hat{y}_{i,\tau}, y_i),
+\quad \sum_i w_i = 1
+\end{equation}
+
+where \( w_i \propto \) (sales volume \( \times \) average price).
+
+\paragraph{} Equal weighting optimises average error; revenue weighting optimises financial impact.
+
+\subsection{Evaluation Metrics}
+\todo{Define metrics (RMSE, MAE, weighted variants, pinball, coverage, interval width).}

@@ -1,0 +1,71 @@
+% =========================
+% CORE FORMATTING
+% =========================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+\usepackage{parskip}
+\usepackage{titlesec}
+
+% =========================
+% MATH
+% =========================
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{mathtools}
+\usepackage{bm} % bold math symbols
+
+% =========================
+% FIGURES & TABLES
+% =========================
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float} % better control of figure placement
+
+% =========================
+% COLOURS & CODE
+% =========================
+\usepackage{xcolor}
+\usepackage{listings}
+
+% Optional: nicer code formatting (safe defaults)
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible
+}
+
+% =========================
+% LINKS
+% =========================
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks = true,
+    linkcolor  = black,
+    citecolor  = black,
+    urlcolor   = blue,
+}
+
+% =========================
+% CITATIONS
+% =========================
+\usepackage[numbers]{natbib}
+
+% =========================
+% UTILITIES
+% =========================
+\hypersetup{
+    colorlinks = true,
+    linkcolor  = black,
+    citecolor  = black,
+    urlcolor   = blue,
+}
+
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}

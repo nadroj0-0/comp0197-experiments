@@ -1,0 +1,70 @@
+model_name: baseline_gru_nb
+model_type: baseline_gru_nb
+probabilistic: true
+train_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: false
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: &id001
+    lr: 0.000177851895606901
+    weight_decay: 7.380719017653455e-05
+  scheduler: plateau
+  scheduler_params: &id002
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.32381340336396913
+  hidden: 101.99128154814565
+  layers: 1.6733645472933016
+  dropout: 0.2952495634097898
+  n_features: 6
+best_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: false
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: *id001
+  scheduler: plateau
+  scheduler_params: *id002
+  clip_grad_norm: 0.32381340336396913
+  hidden: 101.99128154814565
+  layers: 1.6733645472933016
+  dropout: 0.2952495634097898
+  n_features: 6
+search_space:
+  optimiser_params.lr:
+  - 5.0e-05
+  - 0.001
+  - log
+  optimiser_params.weight_decay:
+  - 1.0e-06
+  - 0.01
+  - log
+  hidden:
+  - 32
+  - 128
+  - uniform
+  layers:
+  - 1
+  - 2
+  - uniform
+  dropout:
+  - 0.0
+  - 0.3
+  - uniform
+  clip_grad_norm:
+  - 0.25
+  - 1.0
+  - uniform

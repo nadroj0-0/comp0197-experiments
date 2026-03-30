@@ -1049,9 +1049,11 @@ class HierarchicalQuantileGRU(nn.Module):
         Tensor: Shape (B, n_quantiles).
     """
     def __init__(self, hidden_size, num_layers, dropout,
-                 n_quantiles, vocab_sizes, embed_dim=8):
+                 n_quantiles, vocab_sizes, embed_dim=8, horizon=1):
         super().__init__()
         self.embedder = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.n_quantiles = n_quantiles
+        self.horizon = horizon
         self.gru = nn.GRU(
             input_size  = self.embedder.output_dim,
             hidden_size = hidden_size,
@@ -1059,12 +1061,15 @@ class HierarchicalQuantileGRU(nn.Module):
             batch_first = True,
             dropout     = dropout if num_layers > 1 else 0.0,
         )
-        self.fc = nn.Linear(hidden_size, n_quantiles)
+        self.fc = nn.Linear(hidden_size, horizon * n_quantiles)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x      = self.embedder(x)
         out, _ = self.gru(x)
-        return self.fc(out[:, -1, :])
+        raw = self.fc(out[:, -1, :])  # (B, H*Q)
+        if self.horizon == 1:
+            return raw  # (B, Q) — AR path
+        return raw.view(raw.size(0), self.horizon, self.n_quantiles)  # (B, H, Q)
 
 
 def build_hierarchical_quantile_gru(cfg: dict):
@@ -1082,6 +1087,7 @@ def build_hierarchical_quantile_gru(cfg: dict):
         n_quantiles = len(quantiles),
         vocab_sizes = cfg['vocab_sizes'],
         embed_dim   = int(cfg.get('embed_dim', 8)),
+        horizon=_output_size(cfg),
     ).to(device)
     criterion = pinball_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)
@@ -1122,9 +1128,11 @@ class HierarchicalWQuantileGRU(nn.Module):
         Tensor: Shape (B, n_quantiles).
     """
     def __init__(self, hidden_size, num_layers, dropout,
-                 n_quantiles, vocab_sizes, embed_dim=8):
+                 n_quantiles, vocab_sizes, embed_dim=8, horizon=1):
         super().__init__()
         self.embedder = _HierarchyEmbedder(vocab_sizes, embed_dim)
+        self.n_quantiles = n_quantiles
+        self.horizon = horizon
         self.gru = nn.GRU(
             input_size  = self.embedder.output_dim,
             hidden_size = hidden_size,
@@ -1132,12 +1140,15 @@ class HierarchicalWQuantileGRU(nn.Module):
             batch_first = True,
             dropout     = dropout if num_layers > 1 else 0.0,
         )
-        self.fc = nn.Linear(hidden_size, n_quantiles)
+        self.fc = nn.Linear(hidden_size, horizon * n_quantiles)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x      = self.embedder(x)
         out, _ = self.gru(x)
-        return self.fc(out[:, -1, :])
+        raw = self.fc(out[:, -1, :])  # (B, H*Q)
+        if self.horizon == 1:
+            return raw  # (B, Q) — AR path
+        return raw.view(raw.size(0), self.horizon, self.n_quantiles)  # (B, H, Q)
 
 
 def build_hierarchical_wquantile_gru(cfg: dict):
@@ -1157,6 +1168,7 @@ def build_hierarchical_wquantile_gru(cfg: dict):
         n_quantiles = len(quantiles),
         vocab_sizes = cfg['vocab_sizes'],
         embed_dim   = int(cfg.get('embed_dim', 8)),
+        horizon=_output_size(cfg),
     ).to(device)
     criterion = weighted_pinball_loss
     optimiser = OptimisationConfig.configure_optimiser(model, cfg)

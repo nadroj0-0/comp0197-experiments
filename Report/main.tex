@@ -1,0 +1,196 @@
+\documentclass[runningheads,oneside]{llncs}
+
+% =====================
+% Preamble (ONE place only)
+% =====================
+\input{preamble}
+% \usepackage{showframe}
+
+
+\title{Applied Deep Learning Report COMP0197 - Hierarchical Sales Forecasting Using Deep Learning}
+\author{
+Jordan Sydney-Darling \and
+Imasha [surname] \and
+Luke [surname]\and
+Mia [surname]\and
+Selin [surname]\and
+Sherwin [surname]\and
+Zhen-Yen [surname]\and
+Ellen [surname]\and
+Troy [surname]
+}
+
+\institute{
+University College London, UK
+}
+\authorrunning{Sydney-Darling et al.}
+\date{March 2026}
+
+% =====================
+\begin{document}
+% =====================
+
+\maketitle
+
+\begin{abstract}
+\todo{To be completed after results. Summarise objectives, models, and key findings.}
+\end{abstract}
+
+% =====================
+% SECTIONS (modular)
+% =====================
+
+\input{introduction}
+\input{data}
+
+\section{Methods}
+\subsection{Baselines}
+
+\input{gru}          
+\input{lstm}
+
+\input{lgbm}
+\input{hierarchical}
+\input{tft}
+
+\input{experiments}
+
+\input{results}
+\input{discussion}
+\input{conclusion}
+
+\bibliographystyle{splncs04}
+\bibliography{references}
+
+
+% =====================
+\newpage
+\appendix
+\section{Notes on Writing and Compilation}
+
+The report has already been split into individual \texttt{.tex} files, one per section. The full \texttt{Report} folder (including all section files and a \texttt{main.tex}) has been uploaded to Git and to a shared Overleaf project.
+
+The recommended approach is to work directly in Overleaf. Each person should open the project, locate their assigned \texttt{.tex} file, and write directly within it. This allows everyone to see updates in real time and ensures the full report always compiles in one place.
+
+Each file already contains the appropriate section heading. There is no need to include a preamble or document setup — only the content for that section should be written.
+
+For example, a file might look like:
+
+\begin{verbatim}
+\subsection{LSTM Baseline Study}
+
+Write your content here...
+\end{verbatim}
+
+Nothing else is required in the file (no \texttt{\textbackslash begin\{document\}}, \texttt{\textbackslash end\{document\}}, or additional setup).
+
+The \texttt{main.tex} file compiles all sections into a single document using \texttt{\textbackslash input\{\}}.
+
+\paragraph{}
+
+A shared \texttt{preamble.tex} file contains all packages and settings for the report and is already imported into \texttt{main.tex}. There is no need to include packages in individual section files. If anything additional is needed, it can be added to the end of \texttt{preamble.tex}.
+
+A shared \texttt{references.bib} file is included for citations. If you add a reference, include it there and cite it using \texttt{\textbackslash cite\{\}} in your section.
+
+An example reference \cite{makridakis2022m5}
+
+\paragraph{}
+
+If preferred, sections can also be edited locally and then uploaded, but working within Overleaf is recommended to keep everything synchronised.
+
+
+\begin{center}
+\fbox{
+\parbox{0.9\textwidth}{
+\centering
+\textbf{\Large Overleaf Project Link}\\[6pt]
+\texttt{https://www.overleaf.com/6558942236hxyjdxffjntn#b4b1cf}
+}
+}
+\end{center}
+
+\newpage
+
+\section{USEFUL STUFF}
+USEFUL EQUATIONS WE MIGHT DECIDE TO PUT IN THE REPORT
+\subsubsection*{Probabilistic Gaussian}
+\begin{equation}
+    \mathcal{L}_{\mathrm{Gauss}}
+    \;=\;
+    \frac{1}{N} \sum_{i=1}^{N}
+    \left[
+        \log \sigma_i
+        + \frac{(y_i - \mu_i)^2}{2\,\sigma_i^2}
+    \right]
+    + \lambda\,\bar{\sigma}
+    \label{eq:gauss_nll}
+\end{equation}
+
+
+\subsubsection*{Probabilistic Negative Binomial}
+
+The Negative Binomial log-likelihood is:
+%
+\begin{equation}
+    \mathcal{L}_{\mathrm{NB}}
+    \;=\;
+    -\frac{1}{N} \sum_{i=1}^{N}
+    \Bigl[
+        \log\Gamma(y_i + r_i)
+        - \log\Gamma(r_i)
+        - \log\Gamma(y_i + 1)
+        + r_i \log\!\frac{r_i}{r_i + \mu_i}
+        + y_i \log\!\frac{\mu_i}{r_i + \mu_i}
+    \Bigr]
+    \label{eq:nb_nll}
+\end{equation}
+%
+where $r_i = 1/\alpha_i$ is the dispersion parameter.
+
+\subsubsection*{Quantile Regression}
+
+The pinball loss for quantile $\tau$ is:
+%
+\begin{equation}
+    \mathcal{L}_{\tau}(\hat{y},\, y)
+    \;=\;
+    \begin{cases}
+        \tau\,(y - \hat{y})       & \text{if } y \geq \hat{y} \\[4pt]
+        (1 - \tau)\,(\hat{y} - y) & \text{otherwise}
+    \end{cases}
+    \label{eq:pinball}
+\end{equation}
+
+
+
+\subsubsection*{Forecast Visualisations}
+COPY TEMPLATE IF ANYONE WANTS TO PUT VISUALSE IN
+
+\begin{figure}[h]
+    \centering
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{forecast_1.png}
+        \caption{Forecast series 1}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{forecast_2.png}
+        \caption{Forecast series 2}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.32\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{forecast_3.png}
+        \caption{Forecast series 3}
+    \end{subfigure}
+    \caption{ADD A CAPTION}
+    \label{fig:forecasts}
+\end{figure}
+
+\newpage
+
+
+%=====================
+\end{document}

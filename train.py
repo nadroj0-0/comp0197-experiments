@@ -214,7 +214,7 @@ def main():
         train_cfg     = model_cfg.get("train_config", {})
         model_type    = model_cfg.get("model_type", "")
         is_prob       = bool(model_cfg.get("probabilistic", False))
-        is_nb         = model_type in ("baseline_gru_nb", "gru_nb")
+        is_nb         = model_type in ("baseline_gru_nb", "gru_nb", "hierarchical_gru_nb")
         is_hierarchical = model_type.startswith("hierarchical")
 
         # set n_features so builder sizes input layer correctly
@@ -249,7 +249,7 @@ def main():
             exp.val_loader   = loaders["val_loader_nb"]
             exp.test_dataset = loaders["test_loader_nb"]
             exp.stats        = loaders["stats_nb"]
-        elif model_type == "baseline_wquantile_gru":
+        elif model_type in ("baseline_wquantile_gru", "hierarchical_wquantile_gru"):
             # weighted pinball — needs (x, y, weight) batches for training
             # val/test share the det loaders (always return (x, y))
             exp.train_loader = loaders["train_loader_wquantile"]

@@ -1,0 +1,73 @@
+\subsubsection{GRU Baseline Ablation Study}
+This section presents a controlled ablation study on GRU-based models, including both methodological setup and corresponding results, to isolate the effect of predictive objective under fixed architectural conditions.\\\\
+We implement five GRU-based baseline variants to isolate the effect of predictive objective on forecasting performance while controlling for model architecture. All models share a common backbone consisting of a single GRU layer with the final hidden state passed to a linear output head, ensuring that differences in performance arise from the loss formulation rather than architectural complexity. The variants include: a deterministic baseline trained with MSE, a Gaussian probabilistic model outputting $(\mu, \sigma)$ trained via negative log-likelihood, a Negative Binomial model parameterised by $(\mu, \alpha)$ to account for overdispersed count data, a quantile regression model trained using pinball loss across seven quantiles $[0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]$, and a revenue-weighted quantile model where per-series losses are scaled by volume $\times$ average sell price. 
+
+To further disentangle modelling choices, we conducted controlled experiments to evaluate the impact of forecasting strategy and feature representation. Each model was trained under identical settings while varying only the decoding regime (autoregressive versus direct multi-step/seq2seq) and the treatment of hierarchical information (flat encoded features versus learned hierarchical representations). Hyperparameters were selected using successive halving on a stratified subset of 3,000 series, with final models trained on the full dataset of 30,490 series. This setup allows us to isolate the contribution of loss function, forecasting strategy, and hierarchy modelling independently of architectural changes.
+
+
+\paragraph{Results and Discussion}
+
+\todo{2--3 sentences. State the deterministic baseline RMSE as the lower
+bound. State which probabilistic variant performed best on point accuracy and
+whether it matched or beat the baseline. One sentence on best calibration
+result (coverage closest to 0.95).}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{GRU baseline comparison across forecasting regimes and hierarchy representations on the M5 test set (d1914--d1941, 30,490 series).} Best per column in \textbf{bold}. AR = autoregressive; S2S = direct multi-step.}
+\label{tab:gru_results}
+
+\renewcommand{\arraystretch}{1.5} 
+
+\resizebox{\textwidth}{!}{ 
+\begin{tabular}{lllrrrrrrrr}
+\toprule
+\textbf{Model} & \textbf{Regime} & \textbf{Hierarchy}
+    & \textbf{RMSE} & \textbf{W-RMSE}
+    & \textbf{MAE}  & \textbf{W-MAE}
+    & \textbf{$R^2$} & \textbf{Cov@95\%} & \textbf{Width} \\
+\midrule
+
+Deterministic (MSE)  & AR  & Flat 
+& 2.74 & 0.01781 
+& 1.14 & 0.000045 
+& 0.434 & -- & -- \\
+
+Gaussian (NLL)       & AR  & Flat 
+& 2.78 & 0.01777 
+& 1.20 & 0.000046 
+& 0.419 & 0.824 & 2.40 \\
+
+Quantile (Pinball)   & AR  & Flat 
+& \textbf{2.29} & \textbf{0.01518} 
+& \textbf{0.97} & \textbf{0.000039} 
+& \textbf{0.605} & \textbf{0.892} & 3.36 \\
+\midrule
+
+Deterministic (MSE) & S2S & Flat & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+
+Best Parametric & S2S & Flat & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+
+Best Non-Parametric & S2S & Flat & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+\midrule
+
+Hierarchical Deterministic & S2S & Hierarchical & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+
+Best Hierarchical Parametric & S2S & Hierarchical & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+
+Best Hierarchical Non-Parametric & S2S & Hierarchical & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+\midrule
+
+Best Hierarchical & AR  & Hierarchical & XX.XX & XX.XX & XX.XX & XX.XX & X.XXX & XX.X & XX.X \\
+
+\bottomrule
+\end{tabular}
+}
+
+\end{table}
+
+Direct multi-step (seq2seq) forecasting consistently outperformed autoregressive training across flat baselines, indicating that predicting the full horizon jointly is more effective for this task. Incorporating hierarchical embeddings further improved performance, suggesting that explicit modelling of product hierarchy is beneficial beyond using raw categorical features.
+
+Based on these findings, we recommend using direct multi-step forecasting with explicit hierarchy modelling for downstream models such as TFT.
+
+However, while GRU-based models capture local temporal dynamics effectively, they lack the ability to model long-range dependencies and heterogeneous feature interactions, motivating the use of more expressive architectures such as TFT.

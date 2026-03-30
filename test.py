@@ -66,41 +66,36 @@ def parse_args():
 # REVENUE WEIGHTS
 # =============================================================================
 
-def compute_item_weights(data_dir: str, top_k: int,
-                         sampling: str = "all") -> np.ndarray:
-    """
-    Compute per-item revenue weights matching the eval dataset exactly.
-    sampling="all" → all series; sampling="top" → top-k by volume.
-    """
+def compute_item_weights(data_dir: str, top_k: int, sampling: str = "all") -> np.ndarray:
     sales_df  = pd.read_csv(f"{data_dir}/sales_train_evaluation.csv")
     prices_df = pd.read_csv(f"{data_dir}/sell_prices.csv")
 
     day_cols = [c for c in sales_df.columns if c.startswith("d_")]
     sales_df = sales_df.copy()
-    sales_df["total_sales_volume"] = sales_df[day_cols].sum(axis=1)
-    sales_df = (
-        sales_df.sort_values("total_sales_volume", ascending=False)
-        .reset_index(drop=True)
-    )
 
-    if sampling != "all":
-        sales_df = sales_df.head(top_k).reset_index(drop=True)
-
-    avg_prices = (
-        prices_df.groupby(["item_id", "store_id"])["sell_price"]
-        .mean().reset_index()
-    )
+    avg_prices = prices_df.groupby(["item_id", "store_id"])["sell_price"].mean().reset_index()
     sales_df = sales_df.merge(avg_prices, on=["item_id", "store_id"], how="left")
-    sales_df["sell_price"] = sales_df["sell_price"].fillna(
-        prices_df["sell_price"].median()
-    )
+    sales_df["sell_price"] = sales_df["sell_price"].fillna(prices_df["sell_price"].median())
 
     train_day_cols = day_cols[:-28]
-    item_volumes   = sales_df[train_day_cols].sum(axis=1).values
-    item_revenues  = item_volumes * sales_df["sell_price"].values
-    item_weights   = item_revenues / item_revenues.sum()
+    sales_df["total_sales_volume"] = sales_df[train_day_cols].sum(axis=1)
+    item_revenues = sales_df["total_sales_volume"].values * sales_df["sell_price"].values
 
-    return item_weights.astype(np.float32)
+    # Sort to match test_loader order: alphabetical by id (item_id+store_id concatenated)
+    # data.py sorts featured by ['id', 'date'] where 'id' = item_id_store_id string
+    sales_df["_series_id"] = sales_df["item_id"] + "_" + sales_df["store_id"]
+    sales_df["_revenue"] = item_revenues
+    sales_df = sales_df.sort_values("_series_id").reset_index(drop=True)
+
+    if sampling != "all":
+        # for top-k: need to replicate trim_data's top-k-by-volume selection
+        # then sort that subset alphabetically
+        vol_sorted = sales_df.sort_values("total_sales_volume", ascending=False)
+        sales_df = vol_sorted.head(top_k).sort_values("_series_id").reset_index(drop=True)
+
+    weights = sales_df["_revenue"].values
+    weights = weights / weights.sum()
+    return weights.astype(np.float32)
 
 
 # =============================================================================
@@ -163,6 +158,8 @@ def predict_autoregressive(model, seed_window, horizon, is_prob, is_nb, device,
 
         new_row    = current_window[-1].copy()
         new_row[0] = step_pred
+        if current_window.shape[1] > 5:  # sales_hierarchy_dow has 6 features
+            new_row[5] = (current_window[-1, 5] + 1) % 7
         current_window = np.vstack([current_window[1:], new_row])
 
     return np.array(preds), (np.array(aux_list) if aux_list else None)
@@ -342,7 +339,7 @@ def evaluate_model(model_name: str, run_dir: Path,
     data_dir       = str(exp_eval.get("data_dir",    "./data"))
 
     # load test data — autoregressive=False to get full 28-day targets
-    _, _, test_loader, stats = build_dataloaders(
+    _, _, test_loader, stats, _ = build_dataloaders(
         data_dir       = data_dir,
         seq_len        = seq_len,
         horizon        = horizon,
@@ -416,8 +413,8 @@ def evaluate_model(model_name: str, run_dir: Path,
                     # output (B, Q) — store full quantile tensor for coverage/plots
                     # median stored separately for point metrics
                     q_out = model(x).cpu()             # (B, Q)
-                    all_preds.append(q_out[:, median_idx:median_idx+1])  # (B, 1) median
-                    all_aux.append(q_out)              # (B, Q) all quantiles
+                    all_preds.append(q_out[:, :, median_idx])  # (B, H) — median quantile across all horizon steps
+                    all_aux.append(q_out)  # (B, H, Q) — full quantile tensor
                 else:
                     all_preds.append(model(x).cpu())
                 all_inputs.append(x.cpu())
