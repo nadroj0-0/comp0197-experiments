@@ -14,7 +14,7 @@ run_name: baseline_ablation_sales_hierarchy_dow_flat_seq2seq
 # Set enabled: false for submission (models train with configs already in ymls)
 # =============================================================================
 search:
-  enabled: true
+  enabled: false
   sampling: stratified      # top/middle/bottom thirds of volume distribution
   top_k_series: 1000        # per stratum — 1000+1000+1000 = 3000 total
   init_models: 10

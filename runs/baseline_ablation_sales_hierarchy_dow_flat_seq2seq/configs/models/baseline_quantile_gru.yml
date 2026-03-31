@@ -1,8 +1,6 @@
-# baseline_quantile_gru.yml — Vanilla GRU, Pinball loss (quantile regression)
 model_name: baseline_quantile_gru
 model_type: baseline_quantile_gru
 probabilistic: false
-
 train_config:
   epochs: 60
   seed: 42
@@ -14,26 +12,74 @@ train_config:
   early_stopping_patience: 8
   early_stopping_min_delta: 0.0005
   optimiser: adamw
-  optimiser_params:
-    lr: 0.001
-    weight_decay: 0.0001
+  optimiser_params: &id001
+    lr: 0.00455836742661871
+    weight_decay: 2.979058348295819e-05
   scheduler: plateau
-  scheduler_params:
+  scheduler_params: &id002
     patience: 5
     factor: 0.5
-  clip_grad_norm: 1.0
-  hidden: 64
-  layers: 1
-  dropout: 0.0
-  quantiles: [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
-
-best_config: {}
-
-# Pinball gradients well-behaved — wider lr range than Gaussian
+  clip_grad_norm: 0.5687365754834933
+  hidden: 114.72386242983461
+  layers: 1.577352145256762
+  dropout: 0.21137155086447704
+  quantiles: &id003
+  - 0.025
+  - 0.05
+  - 0.25
+  - 0.5
+  - 0.75
+  - 0.95
+  - 0.975
+  n_features: 6
+  vocab_sizes: &id004
+    state_id_int: 3
+    store_id_int: 10
+    cat_id_int: 3
+    dept_id_int: 7
+best_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: false
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: *id001
+  scheduler: plateau
+  scheduler_params: *id002
+  clip_grad_norm: 0.5687365754834933
+  hidden: 114.72386242983461
+  layers: 1.577352145256762
+  dropout: 0.21137155086447704
+  quantiles: *id003
+  n_features: 6
+  vocab_sizes: *id004
 search_space:
-  optimiser_params.lr: [0.0001, 0.01, log]
-  optimiser_params.weight_decay: [1.0e-7, 0.001, log]
-  hidden: [32, 128, uniform]
-  layers: [1, 2, uniform]
-  dropout: [0.0, 0.3, uniform]
-  clip_grad_norm: [0.5, 2.0, uniform]
+  optimiser_params.lr:
+  - 0.0001
+  - 0.01
+  - log
+  optimiser_params.weight_decay:
+  - 1.0e-07
+  - 0.001
+  - log
+  hidden:
+  - 32
+  - 128
+  - uniform
+  layers:
+  - 1
+  - 2
+  - uniform
+  dropout:
+  - 0.0
+  - 0.3
+  - uniform
+  clip_grad_norm:
+  - 0.5
+  - 2.0
+  - uniform

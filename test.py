@@ -115,6 +115,45 @@ def nb_params_to_quantiles(mu, alpha, quantiles, n_samples=1000):
     )
     return q_vals.permute(1, 0).cpu().numpy()
 
+# =============================================================================
+# CRPS HELPERS
+# =============================================================================
+
+SQRT_PI = np.sqrt(np.pi)
+SQRT_2  = np.sqrt(2.0)
+
+def _normal_pdf(z):
+    return np.exp(-0.5 * z**2) / np.sqrt(2 * np.pi)
+
+def _normal_cdf(z):
+    from math import erf
+    return 0.5 * (1 + np.vectorize(erf)(z / SQRT_2))
+
+def crps_gaussian(mu, sigma, y):
+    """
+    Exact closed-form CRPS for Gaussian predictive distribution.
+    mu, sigma, y: numpy arrays of same shape — must be in original (denormalised) space.
+    Returns per-element CRPS, call .mean() for scalar.
+    """
+    sigma = np.clip(sigma, 1e-6, None)
+    z     = (y - mu) / sigma
+    return sigma * (z * (2 * _normal_cdf(z) - 1) + 2 * _normal_pdf(z) - 1 / SQRT_PI)
+
+def crps_from_quantiles(y, q_preds, quantiles):
+    """
+    Approximate CRPS via pinball loss sum over quantile levels.
+    CRPS ≈ 2 * mean_over_quantiles(pinball_loss)
+    y       : (N, H)    — targets in original space
+    q_preds : (N, H, Q) — predicted quantiles in original space
+    quantiles: list of Q floats
+    Returns scalar.
+    """
+    y_exp = y[:, :, np.newaxis]                          # (N, H, 1)
+    q     = np.array(quantiles)[np.newaxis, np.newaxis, :]  # (1, 1, Q)
+    diff  = y_exp - q_preds                              # (N, H, Q)
+    loss  = np.maximum(q * diff, (q - 1) * diff)        # (N, H, Q) pinball per cell
+    return float(2 * loss.mean())
+
 
 # =============================================================================
 # AUTOREGRESSIVE INFERENCE
@@ -483,6 +522,14 @@ def evaluate_model(model_name: str, run_dir: Path,
         coverage = float(((targets_orig >= lower_orig) & (targets_orig <= upper_orig)).mean())
         width    = float((upper_orig - lower_orig).mean())
         print(f"  Coverage(95%)={coverage:.4f}  Width={width:.4f}")
+        # CRPS for NB — approximate via sampled quantiles
+        q_all = np.stack([
+            nb_params_to_quantiles(preds_np[i], aux_np[i], QUANTILES, n_samples=200)
+            for i in range(len(preds_np))
+        ])  # (N, H, Q)
+        crps_nb = crps_from_quantiles(targets_orig, q_all, QUANTILES)
+        print(f"  CRPS={crps_nb:.4f}")
+        metrics_dict["crps"] = crps_nb
         metrics_dict["coverage_95"]    = coverage
         metrics_dict["interval_width"] = width
 
@@ -496,6 +543,17 @@ def evaluate_model(model_name: str, run_dir: Path,
         coverage = float(((targets_orig >= lower_orig) & (targets_orig <= upper_orig)).mean())
         width    = float((upper_orig - lower_orig).mean())
         print(f"  Coverage(95%)={coverage:.4f}  Width={width:.4f}")
+        # CRPS for Gaussian — exact closed form, computed in original space
+        # aux_np is sigma in training space — need to convert to original space
+        if use_normalise:
+            # sigma is in log1p space; approximate in original via delta method
+            sigma_orig = aux_np * np.exp(np.clip(preds_np, 0, 12.0))
+        else:
+            sigma_orig = aux_np
+        sigma_orig = np.clip(sigma_orig, 1e-6, None)
+        crps_g = crps_gaussian(preds_orig, sigma_orig, targets_orig).mean()
+        print(f"  CRPS={crps_g:.4f}")
+        metrics_dict["crps"] = float(crps_g)
         metrics_dict["coverage_95"]    = coverage
         metrics_dict["interval_width"] = width
 
@@ -516,6 +574,11 @@ def evaluate_model(model_name: str, run_dir: Path,
         coverage = float(((targets_orig >= lower_orig) & (targets_orig <= upper_orig)).mean())
         width    = float((upper_orig - lower_orig).mean())
         print(f"  Coverage(95%)={coverage:.4f}  Width={width:.4f}")
+        # CRPS for quantile — approximate via pinball sum, only when (N, H, Q)
+        if aux_np.ndim == 3:
+            crps_q = crps_from_quantiles(targets_orig, aux_np, quantiles)
+            print(f"  CRPS={crps_q:.4f}")
+            metrics_dict["crps"] = crps_q
         metrics_dict["coverage_95"]    = coverage
         metrics_dict["interval_width"] = width
 
@@ -644,8 +707,8 @@ def main():
         print(f"\n{'='*70}")
         print("  RESULTS SUMMARY")
         print(f"{'='*70}")
-        print(f"{'Model':<25} {'RMSE':>8} {'W-RMSE':>8} {'MAE':>8} {'W-MAE':>8} {'R²':>8}")
-        print("-" * 70)
+        print(f"{'Model':<25} {'RMSE':>8} {'W-RMSE':>8} {'MAE':>8} {'W-MAE':>8} {'R²':>8} {'CRPS':>8}")
+        print("-" * 80)
         for r in all_results:
             print(
                 f"{r['model']:<25} "
@@ -653,7 +716,8 @@ def main():
                 f"{r.get('w_rmse', float('nan')):>8.4f} "
                 f"{r['mae']:>8.4f} "
                 f"{r.get('w_mae', float('nan')):>8.4f} "
-                f"{r['r2']:>8.4f}"
+                f"{r['r2']:>8.4f} "
+                f"{r.get('crps', float('nan')):>8.4f}"
             )
         print("=" * 70)
 
