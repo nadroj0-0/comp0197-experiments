@@ -148,11 +148,12 @@ def crps_from_quantiles(y, q_preds, quantiles):
     quantiles: list of Q floats
     Returns scalar.
     """
-    y_exp = y[:, :, np.newaxis]                          # (N, H, 1)
-    q     = np.array(quantiles)[np.newaxis, np.newaxis, :]  # (1, 1, Q)
-    diff  = y_exp - q_preds                              # (N, H, Q)
-    loss  = np.maximum(q * diff, (q - 1) * diff)        # (N, H, Q) pinball per cell
-    return float(2 * loss.mean())
+    y_exp = y[:, :, np.newaxis]  # (N, H, 1)
+    q = np.array(quantiles)[np.newaxis, np.newaxis, :]  # (1, 1, Q)
+    diff = y_exp - q_preds  # (N, H, Q)
+    loss = np.maximum(q * diff, (q - 1) * diff)  # (N, H, Q)
+    weights = np.diff(np.concatenate(([0.0], quantiles)))  # (Q,) spacing
+    return float((loss * weights[np.newaxis, np.newaxis, :]).sum(axis=2).mean())
 
 
 # =============================================================================
@@ -512,26 +513,22 @@ def evaluate_model(model_name: str, run_dir: Path,
 
     # coverage for probabilistic models
     if is_nb and aux_np is not None:
-        lower_all, upper_all = [], []
+        lower_all, upper_all, q_all_list = [], [], []
         for i in range(len(preds_np)):
             q = nb_params_to_quantiles(preds_np[i], aux_np[i], QUANTILES, n_samples=200)
             lower_all.append(q[:, QUANTILES.index(0.025)])
             upper_all.append(q[:, QUANTILES.index(0.975)])
+            q_all_list.append(q)
         lower_orig = np.clip(np.array(lower_all), 0, 1e6)
         upper_orig = np.clip(np.array(upper_all), 0, 1e6)
+        q_all = np.stack(q_all_list)  # (N, H, Q)
         coverage = float(((targets_orig >= lower_orig) & (targets_orig <= upper_orig)).mean())
-        width    = float((upper_orig - lower_orig).mean())
-        print(f"  Coverage(95%)={coverage:.4f}  Width={width:.4f}")
-        # CRPS for NB — approximate via sampled quantiles
-        q_all = np.stack([
-            nb_params_to_quantiles(preds_np[i], aux_np[i], QUANTILES, n_samples=200)
-            for i in range(len(preds_np))
-        ])  # (N, H, Q)
+        width = float((upper_orig - lower_orig).mean())
         crps_nb = crps_from_quantiles(targets_orig, q_all, QUANTILES)
-        print(f"  CRPS={crps_nb:.4f}")
-        metrics_dict["crps"] = crps_nb
-        metrics_dict["coverage_95"]    = coverage
+        print(f"  Coverage(95%)={coverage:.4f}  Width={width:.4f}  CRPS={crps_nb:.4f}")
+        metrics_dict["coverage_95"] = coverage
         metrics_dict["interval_width"] = width
+        metrics_dict["crps"] = crps_nb
 
     elif is_prob and aux_np is not None:
         if use_normalise:
