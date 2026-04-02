@@ -7,7 +7,7 @@
 # Comment/uncomment models to control what trains and evaluates.
 # =============================================================================
 
-run_name: baseline_ablation_sales_hierarchy_dow
+run_name: baseline_ablation_sales_hierarchy_dow_flat_ar
 
 # =============================================================================
 # SEARCH — hyperparameter search settings
