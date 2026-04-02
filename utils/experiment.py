@@ -71,34 +71,7 @@ class Experiment:
         self.stats = None
         self.preloaded = False
 
-    # def prepare_data(self, augment=False):
-    #     """Load and split data, storing loaders as instance attributes."""
-    #     generator = init_seed(self.cfg)
-    #     train_dataset_aug, self.test_dataset = download_data(augment=augment)
-    #     self.images, self.labels, self.train_loader, _ = load_data_pytorch(
-    #         train_dataset_aug,
-    #         batch_size=self.cfg["batch_size"],
-    #         validation_fraction=self.cfg["validation_fraction"],
-    #         generator=generator
-    #     )
-    #     if augment:
-    #         # val loader uses clean data
-    #         train_dataset_clean, _ = download_data(augment=False)
-    #         generator = init_seed(self.cfg)
-    #         _, _, _, self.val_loader = load_data_pytorch(
-    #             train_dataset_clean,
-    #             batch_size=self.cfg["batch_size"],
-    #             validation_fraction=self.cfg["validation_fraction"],
-    #             generator=generator
-    #         )
-    #     else:
-    #         generator = init_seed(self.cfg)
-    #         _, _, _, self.val_loader = load_data_pytorch(
-    #             train_dataset_aug,
-    #             batch_size=self.cfg["batch_size"],
-    #             validation_fraction=self.cfg["validation_fraction"],
-    #             generator=generator
-    #         )
+
     def prepare_data(self, data_fn, **data_kwargs):
         """
         Load data using data_fn and store as instance attributes.
@@ -107,26 +80,7 @@ class Experiment:
         """
         self.train_loader, self.val_loader, self.test_dataset, self.stats = data_fn(**data_kwargs)
 
-    # def search(self, search_space, training_step=None, schedule=None, initial_models=20):
-    #     """Run successive halving search and update self.cfg with winner."""
-    #     from utils.hyperparameter import staged_search
-    #     print(f"\nStarting {self.name} hyperparameter search")
-    #     best_cfg = staged_search(
-    #         search_space,
-    #         self.images, self.labels,
-    #         self.train_loader, self.val_loader,
-    #         self.cfg["optimiser"],
-    #         self.model_dir,
-    #         base_config=self.cfg,
-    #         training_step=training_step or baseline_step,
-    #         schedule=schedule,
-    #         initial_models=initial_models,
-    #         search_name=f"{self.name}_search"
-    #     )
-    #     if best_cfg is not None:
-    #         print(f"Best {self.name} configuration:")
-    #         print(best_cfg)
-    #         self.cfg = best_cfg.copy()
+
     def search(self, search_space, builder, training_step=gru_step,
                schedule=None, initial_models=20):
         """Run successive halving search and update self.cfg with winner."""
@@ -148,35 +102,7 @@ class Experiment:
             print(best_cfg)
             self.cfg = best_cfg.copy()
 
-    # def train(self, training_step=None, use_regularisation=False, use_mixup=False, use_smoothing=False):
-    #     """Train the final model using self.cfg."""
-    #     init_seed(self.cfg)
-    #     train_kwargs = dict(
-    #         lr=self.cfg["lr"],
-    #         momentum=self.cfg["momentum"],
-    #     )
-    #     if use_regularisation:
-    #         train_kwargs["weight_decay"] = self.cfg.get("weight_decay", 0)
-    #         train_kwargs["dropout_prob"] = self.cfg.get("reg_dropout", 0.0)
-    #     if use_mixup:
-    #         train_kwargs["mixup_alpha"] = self.cfg["mixup_alpha"]
-    #     if use_smoothing:
-    #         train_kwargs["label_smoothing"] = self.cfg["label_smoothing"]
-    #     self.model, self.history, _, _ = full_train(
-    #         self.name,
-    #         self.images, self.labels,
-    #         self.train_loader, self.val_loader,
-    #         self.cfg["optimiser"],
-    #         epochs=self.cfg["epochs"],
-    #         model_dir=self.model_dir,
-    #         config=self.cfg,
-    #         training_step=training_step or baseline_step,
-    #         **train_kwargs
-    #     )
-    #     print(f'\n{self.name} model:')
-    #     print(self.model)
-    #     print(f'\n{self.name} final epoch metrics:')
-    #     print(self.history['epoch_metrics'][-1])
+
     def train(self, builder, training_step=gru_step):
         """Train the final model using self.cfg."""
         init_seed(self.cfg)
@@ -191,27 +117,7 @@ class Experiment:
         print(f'\n{self.name} final epoch metrics:')
         print(self.history['epoch_metrics'][-1])
 
-    # def run(self, search_space=None, training_step=None, augment=False,
-    #         use_regularisation=False, use_mixup=False, use_smoothing=False,
-    #         schedule=None, initial_models=20):
-    #     """
-    #     Run the full experiment pipeline in one call:
-    #     data preparation → optional search → training → evaluation.
-    #     """
-    #     self.prepare_data(augment=augment)
-    #     if search_space is not None:
-    #         self.search(
-    #             search_space,
-    #             training_step=training_step,
-    #             schedule=schedule,
-    #             initial_models=initial_models
-    #         )
-    #     self.train(
-    #         training_step=training_step,
-    #         use_regularisation=use_regularisation,
-    #         use_mixup=use_mixup,
-    #         use_smoothing=use_smoothing
-    #     )
+
     def run(self, builder, training_step=gru_step,
             data_fn=None, search_space=None, schedule=None, initial_models=20,
             **data_kwargs):
