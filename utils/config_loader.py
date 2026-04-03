@@ -151,6 +151,7 @@ def resolve_registry_entry(entry: dict) -> dict:
         "is_prob":       bool(entry.get("is_prob", False)),
         "is_nb":         bool(entry.get("is_nb",   False)),
         "is_quantile":   bool(entry.get("is_quantile", False)),
+        "is_tft": bool(entry.get("is_tft", False)),
     }
 
 

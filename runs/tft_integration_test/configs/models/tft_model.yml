@@ -1,0 +1,52 @@
+# tft_model.yml — Temporal Fusion Transformer
+# pytorch-forecasting TemporalFusionTransformer with 9-quantile output.
+# Scoped to one store (store_id) and top-N series by volume (n_series).
+# No search_space — TFT is trained from fixed defaults.
+model_name: tft_model
+model_type: tft
+probabilistic: false
+ 
+train_config:
+  # ----- data scope -----
+  store_id:  CA_3
+  n_series:  10
+  data_dir:  ./data
+ 
+  # ----- forecasting window -----
+  horizon:               28
+  max_encoder_length:    56
+  max_prediction_length: 28
+ 
+  # ----- training -----
+  epochs:                       10
+  seed:                         42
+  batch_size:                   64
+  num_workers:                  0
+  early_stopping_patience:      8
+  early_stopping_min_delta:     0.0005
+ 
+  # ----- optimiser -----
+  optimiser: adamw
+  optimiser_params:
+    lr:           0.001
+    weight_decay: 0.0001
+  scheduler: plateau
+  scheduler_params:
+    patience: 4
+    factor:   0.5
+  clip_grad_norm: 0.1
+ 
+  # ----- TFT architecture -----
+  hidden_size:            32
+  attention_head_size:    4
+  dropout:                0.1
+  hidden_continuous_size: 16
+ 
+  # ----- quantiles -----
+  quantiles: [0.005, 0.025, 0.165, 0.25, 0.5, 0.75, 0.835, 0.975, 0.995]
+ 
+  # ----- flags (keep these, train.py reads them) -----
+  autoregressive: false
+  use_normalise:  false
+ 
+best_config: {}

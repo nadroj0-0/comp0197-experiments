@@ -1,0 +1,82 @@
+model_name: baseline_gru_prob
+model_type: baseline_gru
+probabilistic: true
+train_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: true
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: &id001
+    lr: 0.002056963336618774
+    weight_decay: 8.297115711018944e-05
+  scheduler: plateau
+  scheduler_params: &id002
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.9400507890915337
+  hidden: 83.47789677965127
+  layers: 1.9731157639793706
+  dropout: 0.11356031316250603
+  sigma_reg: 0.017319618049844866
+  n_features: 6
+  vocab_sizes: &id003
+    state_id_int: 3
+    store_id_int: 5
+    cat_id_int: 3
+    dept_id_int: 4
+best_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: true
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: *id001
+  scheduler: plateau
+  scheduler_params: *id002
+  clip_grad_norm: 0.9400507890915337
+  hidden: 83.47789677965127
+  layers: 1.9731157639793706
+  dropout: 0.11356031316250603
+  sigma_reg: 0.017319618049844866
+  n_features: 6
+  vocab_sizes: *id003
+search_space:
+  optimiser_params.lr:
+  - 5.0e-05
+  - 0.005
+  - log
+  optimiser_params.weight_decay:
+  - 1.0e-07
+  - 0.001
+  - log
+  hidden:
+  - 32
+  - 128
+  - uniform
+  layers:
+  - 1
+  - 2
+  - uniform
+  dropout:
+  - 0.0
+  - 0.3
+  - uniform
+  clip_grad_norm:
+  - 0.25
+  - 1.5
+  - uniform
+  sigma_reg:
+  - 0.0001
+  - 0.05
+  - log

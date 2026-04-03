@@ -30,20 +30,14 @@ from utils.config_loader import (
     snapshot_configs,
     get_model_run_dir,
 )
-from utils.data import build_dataloaders, get_feature_cols
+from utils.data import build_dataloaders, get_feature_cols,  build_tft_dataframe, build_tft_dataloaders
+from utils.network import build_tft
 from utils.common import save_json
 
 PROJECT_DIR     = Path(__file__).resolve().parent
 EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
 REGISTRY_PATH   = PROJECT_DIR / "configs" / "registry.yml"
 MODELS_CFG_DIR  = PROJECT_DIR / "configs" / "models"
-
-# =============================================================================
-# THE ONLY LINE YOU EDIT — set False before submission
-# True  → calls search.py first, writes best configs into run ymls, then trains
-# False → skips search, trains directly using configs already in yml files
-# =============================================================================
-SEARCH = False
 
 
 # =============================================================================
@@ -177,6 +171,7 @@ def main():
     # search.py writes best configs back into run yml files so that
     # step 4 onwards reads the winning hyperparameters automatically
     # ------------------------------------------------------------------
+    SEARCH = bool(exp_cfg.get("search", {}).get("enabled", False))
     if SEARCH:
         from search import run_search
         run_search(exp_cfg, run_dir)
@@ -237,6 +232,35 @@ def main():
         resolved = resolve_registry_entry(registry[model_name])
         builder  = resolved["builder"]
         step     = resolved["training_step"]
+
+        # ------------------------------------------------------------------
+        # TFT: separate data pipeline — build its own dataframe and loaders,
+        # then wrap builder in a closure (training_dataset is not JSON-safe
+        # so it cannot go in cfg; closure keeps it out of the config dict).
+        # ------------------------------------------------------------------
+        is_tft = resolved.get('is_tft', False)
+        if is_tft:
+            from utils.data import load_or_download_m5
+            sales_df_tft, calendar_df_tft, prices_df_tft = load_or_download_m5(
+                train_cfg.get('data_dir', './data'))
+            tft_df = build_tft_dataframe(
+                sales_df_tft, calendar_df_tft, prices_df_tft, train_cfg)
+            tft_train, tft_val, tft_test, tft_ds = build_tft_dataloaders(
+                tft_df, train_cfg)
+            # closure captures tft_ds — keeps it out of cfg
+            builder = lambda cfg, _ds=tft_ds: build_tft(cfg, _ds)
+            model_dir = get_model_run_dir(run_dir, model_name)
+            exp = Experiment(model_name, train_cfg, model_dir=model_dir)
+            exp.train_loader = tft_train
+            exp.val_loader = tft_val
+            exp.test_dataset = tft_test
+            exp.stats = None
+            exp.preloaded = True
+            exp.train(builder, step)
+            if exp.stats is not None:
+                save_json(exp.stats, model_dir / 'normalisation_stats.json')
+            print(f'\n  [DONE] {model_name} — artifacts in {model_dir}')
+            continue  # skip normal loader routing below
 
         # all artifacts go into the run folder
         model_dir = get_model_run_dir(run_dir, model_name)

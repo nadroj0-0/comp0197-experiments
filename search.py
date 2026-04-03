@@ -260,6 +260,13 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     for model_name in models:
         model_yml = run_dir / "configs" / "models" / f"{model_name}.yml"
         model_cfg = load_model_config(model_yml)
+
+        # TFT uses a separate data pipeline and has no search_space —
+        # skip it here; it trains from fixed yml defaults in train.py.
+        if model_cfg.get('model_type', '').startswith('tft'):
+            print(f'  [SKIP] {model_name} — TFT excluded from search')
+            continue
+
         model_type = model_cfg.get("model_type", "")
         is_prob    = bool(model_cfg.get("probabilistic", False))
         is_nb      = model_type in ("baseline_gru_nb", "gru_nb", "hierarchical_gru_nb")

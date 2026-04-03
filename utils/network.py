@@ -1180,3 +1180,63 @@ def build_hierarchical_wquantile_gru(cfg: dict):
         'val_rmse': rmse, 'val_mae': mae, 'val_mape': mape, 'val_r2': r2
     }
     return model, criterion, optimiser, training_kwargs
+
+
+# =============================================================================
+# TFT — Temporal Fusion Transformer
+# Uses pytorch-forecasting's TemporalFusionTransformer, which is an nn.Module
+# and integrates into the existing builder/registry/Experiment pipeline.
+# training_dataset (TimeSeriesDataSet) is passed as an explicit parameter
+# rather than stored in cfg to keep cfg JSON-serialisable for save_history().
+# =============================================================================
+
+def build_tft(cfg, training_dataset):
+    """
+    Builder for Temporal Fusion Transformer.
+
+    Args:
+        cfg              : Standard train_config dict from tft_model.yml.
+        training_dataset : TimeSeriesDataSet built by build_tft_dataloaders().
+                           Captured in a closure in train.py — NOT stored in cfg.
+
+    Returns (model, criterion, optimiser, training_kwargs) exactly as every
+    other builder, so Experiment.train() works unchanged.
+    """
+    try:
+        from pytorch_forecasting import TemporalFusionTransformer
+        from pytorch_forecasting.metrics import QuantileLoss
+    except ImportError as e:
+        raise ImportError(
+            "pytorch-forecasting is required for TFT. "
+            "Add it to environment.yml and reinstall."
+        ) from e
+
+    from utils.common import device
+    from utils.optimisation import OptimisationConfig
+    from utils.common import rmse, mae, mape, r2
+
+    quantiles = cfg.get("quantiles", [0.005, 0.025, 0.165, 0.25, 0.5,
+                                      0.75, 0.835, 0.975, 0.995])
+
+    model = TemporalFusionTransformer.from_dataset(
+        training_dataset,
+        hidden_size=max(8, int(cfg.get("hidden_size", 32))),
+        attention_head_size=int(cfg.get("attention_head_size", 4)),
+        dropout=float(cfg.get("dropout", 0.1)),
+        hidden_continuous_size=int(cfg.get("hidden_continuous_size", 16)),
+        output_size=len(quantiles),
+        loss=QuantileLoss(quantiles=quantiles),
+        learning_rate=float(cfg.get("optimiser_params", {}).get("lr", 1e-3)),
+        log_interval=-1,
+        reduce_on_plateau_patience=1000,  # we handle LR scheduling ourselves
+    ).to(device)
+
+    criterion = QuantileLoss(quantiles=quantiles)
+    optimiser = OptimisationConfig.configure_optimiser(model, cfg)
+    training_kwargs = OptimisationConfig.configure_training_kwargs(optimiser, cfg)
+    training_kwargs["disable_amp"] = True
+    training_kwargs["quantiles"] = quantiles
+    training_kwargs["extra_metrics"] = {
+        "val_rmse": rmse, "val_mae": mae, "val_mape": mape, "val_r2": r2
+    }
+    return model, criterion, optimiser, training_kwargs

@@ -84,6 +84,18 @@ hierarchical_wquantile_gru:
   is_quantile: true
 
 # ---------------------------------------------------------------------------
+# TFT
+# ---------------------------------------------------------------------------
+tft_model:
+  builder:       build_tft
+  training_step: tft_step
+  is_prob:       false
+  is_nb:         false
+  is_quantile:   true
+  is_tft:        true
+
+
+# ---------------------------------------------------------------------------
 # FULL MODELS — complex GRU with HorizonConditionedHead
 # ---------------------------------------------------------------------------
 

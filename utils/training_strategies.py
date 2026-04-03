@@ -1,6 +1,7 @@
 import torch.nn.functional as F
 import torch
 
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def gru_step(model, inputs, labels, criterion, **kwargs):
@@ -78,3 +79,30 @@ def wquantile_gru_step(model, inputs, labels, criterion, **kwargs):
     return loss, preds[:, median_idx]  # (B,)
 
 wquantile_gru_step.valid_train_accuracy = False
+
+
+def tft_step(model, inputs, labels, criterion, **kwargs):
+    """
+    Training step for the Temporal Fusion Transformer.
+
+    inputs : dict of tensors — the full TFT batch (encoder_cont, decoder_cat, etc.)
+             already moved to device by move_to_device() in common.py train_model.
+    labels : (target_tensor, weight) tuple from TimeSeriesDataSet loader.
+             target_tensor() extracts the (B, H) target; weight is None for TFT.
+    criterion : QuantileLoss from pytorch-forecasting.
+    kwargs must contain "quantiles" (list of floats) — set by build_tft().
+
+    Returns (loss scalar, median_predictions of shape (B, H)) so that
+    extra_metrics (rmse, mae etc.) in common.py receive a point forecast.
+    """
+    from utils.common import target_tensor
+    out = model(inputs)  # inputs is the dict, on device
+    pred = out["prediction"]  # (B, H, Q)
+    target = target_tensor(labels)  # (B, H) — unwrap (tensor, None)
+    loss = criterion.loss(pred, target).mean()
+    quantiles = kwargs["quantiles"]  # required — no default
+    median_idx = quantiles.index(0.5)
+    return loss, pred[:, :, median_idx]  # (B, H) median as point pred
+
+
+tft_step.valid_train_accuracy = False

@@ -16,6 +16,45 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 
+def move_to_device(obj, device, non_blocking=True):
+    """Recursively move tensors to device.
+    Works on: Tensor (direct .to()), dict (each value), tuple/list (each item).
+    Non-tensor values (None, int, str) are returned unchanged.
+    """
+    if torch.is_tensor(obj):
+        return obj.to(device, non_blocking=non_blocking)
+    if isinstance(obj, dict):
+        return {k: move_to_device(v, device, non_blocking) for k, v in obj.items()}
+    if isinstance(obj, (tuple, list)):
+        moved = [move_to_device(v, device, non_blocking) for v in obj]
+        return type(obj)(moved)
+    return obj  # None, int, str — pass through unchanged
+
+
+def batch_size_of(labels):
+    """Return batch size from labels.
+    Tensor -> labels.size(0).
+    Tuple/list (TFT returns (target, weight)) -> labels[0].size(0).
+    """
+    if torch.is_tensor(labels):
+        return labels.size(0)
+    if isinstance(labels, (tuple, list)) and torch.is_tensor(labels[0]):
+        return labels[0].size(0)
+    return labels.size(0)  # fallback
+
+
+def target_tensor(labels):
+    """Extract target tensor from labels for metrics accumulation.
+    Tensor -> labels directly.
+    Tuple/list -> labels[0] (the target; labels[1] is the weight or None).
+    """
+    if torch.is_tensor(labels):
+        return labels
+    if isinstance(labels, (tuple, list)):
+        return labels[0]
+    return labels
+
+
 def init_model(images, dropout_prob=0.0):
     # Create the model
     print('\nCreating model...')
@@ -89,8 +128,8 @@ def evaluate_model(data_loader, model, criterion, training_step=None, **kwargs):
     all_targets = []
     with torch.no_grad():
         for inputs, labels in data_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
+            inputs = move_to_device(inputs, device)
+            labels = move_to_device(labels, device)
             if training_step is not None:
                 loss, outputs = training_step(model, inputs, labels, criterion, **kwargs)
             else:
@@ -98,10 +137,10 @@ def evaluate_model(data_loader, model, criterion, training_step=None, **kwargs):
                 loss = criterion(outputs, labels)
             # outputs = model(inputs)
             # loss = criterion(outputs, labels)
-            total_loss += loss.item() * labels.size(0)
-            total_samples += labels.size(0)
+            total_loss += loss.item() * batch_size_of(labels)
+            total_samples += batch_size_of(labels)
             all_preds.append(outputs.detach().cpu())
-            all_targets.append(labels.detach().cpu())
+            all_targets.append(target_tensor(labels).detach().cpu())
     average_loss = total_loss / total_samples
     accuracy = None
     all_preds = torch.cat(all_preds)
@@ -141,8 +180,8 @@ def train_model(epochs, train_loader, val_loader, model, criterion, optim_method
             else:
                 inputs, labels = batch
                 kwargs.pop("item_weights", None)
-            inputs = inputs.to(device, non_blocking=True)
-            labels = labels.to(device, non_blocking=True)
+            inputs = move_to_device(inputs, device, non_blocking=True)
+            labels = move_to_device(labels, device, non_blocking=True)
             optim_method.zero_grad()
             if use_amp:
                 with torch.amp.autocast(device_type="cuda"):
@@ -166,7 +205,7 @@ def train_model(epochs, train_loader, val_loader, model, criterion, optim_method
             # if clip_grad_norm is not None:
             #     nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
             # optim_method.step()
-            batch_size = labels.size(0)
+            batch_size = batch_size_of(labels)
             # loss_value = loss.item()
             loss_value = loss.detach()
             history['batch_losses'].append({

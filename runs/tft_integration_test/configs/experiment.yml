@@ -56,16 +56,16 @@ eval:
 # MODELS — comment out to skip, uncomment to include
 # =============================================================================
 models:
-  #- baseline_gru_det
-  #- baseline_gru_prob
-  #- baseline_gru_nb
-  #- baseline_quantile_gru
-  #- baseline_wquantile_gru
-  #- hierarchical_gru_det
-  #- hierarchical_gru_prob
-  #- hierarchical_gru_nb
-  #- hierarchical_quantile_gru
-  #- hierarchical_wquantile_gru
+  - baseline_gru_det
+  - baseline_gru_prob
+  - baseline_gru_nb
+  - baseline_quantile_gru
+  - baseline_wquantile_gru
+  - hierarchical_gru_det
+  - hierarchical_gru_prob
+  - hierarchical_gru_nb
+  - hierarchical_quantile_gru
+  - hierarchical_wquantile_gru
   - tft_model
   # - gru_det
   # - gru_prob

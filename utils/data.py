@@ -591,3 +591,139 @@ def build_dataloaders(
         vocab_sizes = {}
 
     return train_loader, val_loader, test_loader, stats, vocab_sizes
+
+# =============================================================================
+# TFT DATA PIPELINE
+# These two functions build the feature-rich dataframe and TimeSeriesDataSet
+# that TFT requires. They are called from train.py and test.py.
+# All shared logic (download, trim) reuses existing functions above.
+# =============================================================================
+
+def build_tft_dataframe(sales_df, calendar_df, prices_df, cfg):
+    """
+    Build the feature-rich dataframe TFT needs from already-loaded raw CSVs.
+    Reuses trim_data() for series selection.
+
+    Args:
+        sales_df, calendar_df, prices_df : raw DataFrames from load_or_download_m5().
+        cfg : train_config dict from tft_model.yml.
+              Reads: store_id (str), n_series (int), data_dir (str).
+
+    Returns featured_df ready for build_tft_dataloaders().
+    """
+    store_id = cfg.get("store_id", "CA_3")
+    n_series = int(cfg.get("n_series", 200))
+
+    # ---- filter to store and trim to top-N by volume ----
+    day_cols     = [c for c in sales_df.columns if c.startswith("d_")]
+    store_id = cfg.get("store_id")
+    if store_id:
+        sales_store = sales_df[sales_df["store_id"] == store_id].copy()
+    else:
+        sales_store = sales_df.copy()  # all stores
+    sales_small  = trim_data(sales_store, n_series, sampling="top")
+
+    # ---- melt wide -> long ----
+    id_cols   = ["id", "item_id", "dept_id", "cat_id", "store_id", "state_id"]
+    sales_long = sales_small.melt(
+        id_vars=id_cols, value_vars=day_cols,
+        var_name="d", value_name="sales")
+
+    # ---- merge calendar ----
+    cal_cols = ["date", "wm_yr_wk", "d", "event_name_1", "event_type_1",
+                "event_name_2", "event_type_2", "snap_CA", "snap_TX", "snap_WI",
+                "weekday", "wday", "month", "year"]
+    data = sales_long.merge(calendar_df[cal_cols], on="d", how="left")
+
+    # ---- merge prices ----
+    data = data.merge(prices_df, on=["store_id", "item_id", "wm_yr_wk"], how="left")
+
+    # ---- TFT columns ----
+    data["series_id"] = data["id"]
+    data["time_idx"]  = data["d"].str.replace("d_", "", regex=False).astype(int)
+    data = data.sort_values(["series_id", "time_idx"]).reset_index(drop=True)
+
+    # ---- clean types ----
+    for col in ["event_name_1", "event_type_1", "event_name_2", "event_type_2"]:
+        data[col] = data[col].fillna("None").astype(str)
+    categorical_cols = ["series_id", "item_id", "dept_id", "cat_id",
+                        "store_id", "state_id", "weekday",
+                        "event_name_1", "event_type_1", "event_name_2", "event_type_2"]
+    for col in categorical_cols:
+        data[col] = data[col].astype(str)
+    data["sell_price"]        = data["sell_price"].fillna(0.0)
+    data["sales"]             = data["sales"].astype(float)
+    data["relative_time_idx"] = data.groupby("series_id").cumcount()
+
+    print(f"[tft_data] Built TFT dataframe: {data.shape} "
+          f"({data["series_id"].nunique()} series)")
+    return data
+
+
+def build_tft_dataloaders(featured_df, cfg):
+    """
+    Build TimeSeriesDataSet objects and dataloaders from the TFT dataframe.
+
+    Args:
+        featured_df : output of build_tft_dataframe().
+        cfg : train_config dict. Reads: max_encoder_length, max_prediction_length,
+              batch_size, num_workers, seed.
+
+    Returns (train_loader, val_loader, test_loader, training_dataset).
+    training_dataset is returned so train.py can pass it to build_tft().
+    """
+    try:
+        from pytorch_forecasting import TimeSeriesDataSet
+        from pytorch_forecasting.data import GroupNormalizer
+    except ImportError as e:
+        raise ImportError("pytorch-forecasting required for TFT.") from e
+
+    max_encoder     = int(cfg.get("max_encoder_length",     56))
+    max_prediction  = int(cfg.get("max_prediction_length",  28))
+    batch_size      = int(cfg.get("batch_size",             64))
+    num_workers     = int(cfg.get("num_workers",             0))
+
+    training_cutoff = featured_df["time_idx"].max() - max_prediction
+
+    training_dataset = TimeSeriesDataSet(
+        featured_df[featured_df.time_idx <= training_cutoff],
+        time_idx   = "time_idx",
+        target     = "sales",
+        group_ids  = ["series_id"],
+        min_encoder_length  = max_encoder,
+        max_encoder_length  = max_encoder,
+        min_prediction_length = max_prediction,
+        max_prediction_length = max_prediction,
+        static_categoricals = ["item_id", "dept_id", "cat_id"],
+        time_varying_known_categoricals = [
+            "weekday", "event_name_1", "event_type_1",
+            "event_name_2", "event_type_2"],
+        time_varying_known_reals = [
+            "time_idx", "relative_time_idx",
+            "snap_CA", "snap_TX", "snap_WI",
+            "sell_price", "wday", "month", "year"],
+        time_varying_unknown_reals = ["sales"],
+        target_normalizer = GroupNormalizer(
+            groups=["series_id"], transformation="softplus"),
+        add_relative_time_idx = False,
+        add_target_scales     = True,
+        add_encoder_length    = True,
+    )
+
+    validation_dataset = TimeSeriesDataSet.from_dataset(
+        training_dataset, featured_df, predict=True, stop_randomization=True)
+
+    # test dataset: same as validation for TFT (last max_prediction days)
+    test_dataset = TimeSeriesDataSet.from_dataset(
+        training_dataset, featured_df, predict=True, stop_randomization=True)
+
+    train_loader = training_dataset.to_dataloader(
+        train=True,  batch_size=batch_size, num_workers=num_workers)
+    val_loader   = validation_dataset.to_dataloader(
+        train=False, batch_size=batch_size, num_workers=num_workers)
+    test_loader  = test_dataset.to_dataloader(
+        train=False, batch_size=batch_size, num_workers=num_workers)
+
+    print(f"[tft_data] train={len(training_dataset)} samples | "
+          f"val/test={len(validation_dataset)} samples")
+    return train_loader, val_loader, test_loader, training_dataset

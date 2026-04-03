@@ -1,0 +1,82 @@
+model_name: hierarchical_gru_nb
+model_type: hierarchical_gru_nb
+probabilistic: true
+train_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: true
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: &id001
+    lr: 0.00047551942395728544
+    weight_decay: 1.950619035158425e-06
+  scheduler: plateau
+  scheduler_params: &id002
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.3565771561335202
+  hidden: 151.99082034276853
+  layers: 2.996908881708885
+  dropout: 0.2990241119637736
+  embed_dim: 4.586085768797064
+  n_features: 6
+  vocab_sizes: &id003
+    state_id_int: 3
+    store_id_int: 5
+    cat_id_int: 3
+    dept_id_int: 4
+best_config:
+  epochs: 60
+  seed: 42
+  horizon: 28
+  seq_len: 28
+  autoregressive: true
+  use_normalise: false
+  feature_set: sales_hierarchy_dow
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  optimiser: adamw
+  optimiser_params: *id001
+  scheduler: plateau
+  scheduler_params: *id002
+  clip_grad_norm: 0.3565771561335202
+  hidden: 151.99082034276853
+  layers: 2.996908881708885
+  dropout: 0.2990241119637736
+  embed_dim: 4.586085768797064
+  n_features: 6
+  vocab_sizes: *id003
+search_space:
+  optimiser_params.lr:
+  - 5.0e-05
+  - 0.001
+  - log
+  optimiser_params.weight_decay:
+  - 1.0e-06
+  - 0.01
+  - log
+  hidden:
+  - 64
+  - 256
+  - uniform
+  layers:
+  - 1
+  - 3
+  - uniform
+  dropout:
+  - 0.05
+  - 0.3
+  - uniform
+  embed_dim:
+  - 4
+  - 12
+  - uniform
+  clip_grad_norm:
+  - 0.25
+  - 0.75
+  - uniform
