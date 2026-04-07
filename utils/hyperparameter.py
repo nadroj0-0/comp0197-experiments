@@ -45,11 +45,14 @@ def sample_log_uniform(low, high):
     return 10 ** random.uniform(math.log10(low), math.log10(high))
 
 
-def sample_parameter(low, high,  mode):
+def sample_parameter(low, high, mode):
     if mode == "uniform":
         return sample_uniform(low, high)
     if mode == "log":
         return sample_log_uniform(low, high)
+    if mode == "choice":
+        choices = low if isinstance(low, (list, tuple)) else [low, high]
+        return random.choice(list(choices))
     raise ValueError(f"Unknown sampling mode: {mode}")
 
 def set_nested(cfg: dict, key: str, value):
@@ -64,7 +67,10 @@ def set_nested(cfg: dict, key: str, value):
 def sample_config(base_config, search_space):
     import copy
     cfg = {} if base_config is None else copy.deepcopy(base_config)
-    for param, (low, high, mode) in search_space.items():
+    for param, spec in search_space.items():
+        if not isinstance(spec, (list, tuple)) or len(spec) != 3:
+            raise ValueError(f"Search space for '{param}' must be a 3-item list/tuple, got: {spec}")
+        low, high, mode = spec
         set_nested(cfg, param, sample_parameter(low, high, mode))
     return cfg
 

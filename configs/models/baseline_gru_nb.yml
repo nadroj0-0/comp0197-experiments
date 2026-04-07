@@ -23,9 +23,9 @@ best_config: {}
 
 # Tightest lr + strongest wd — NB NLL most unstable, alpha can collapse
 search_space:
-  optimiser_params.lr: [5.0e-5, 0.001, log]
-  optimiser_params.weight_decay: [1.0e-6, 0.01, log]
-  hidden: [32, 128, uniform]
-  layers: [1, 2, uniform]
-  dropout: [0.0, 0.3, uniform]
-  clip_grad_norm: [0.25, 1.0, uniform]
+  optimiser_params.lr: [2.0e-4, 0.001, log]
+  optimiser_params.weight_decay: [1.0e-5, 0.001, log]
+  hidden: [[64, 96, 128], null, choice]
+  layers: [[1, 2], null, choice]
+  dropout: [0.0, 0.12, uniform]
+  clip_grad_norm: [0.25, 0.75, uniform]

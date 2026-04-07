@@ -239,7 +239,7 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
         model_cfg = load_model_config(model_yml)
         model_type = model_cfg.get("model_type", "")
         is_prob    = bool(model_cfg.get("probabilistic", False))
-        is_nb      = model_type in ("baseline_gru_nb", "gru_nb", "hierarchical_gru_nb")
+        is_nb      = model_type in ("baseline_gru_nb", "hierarchical_gru_nb")
 
         if is_nb:
             tl, vl, st = loaders["train_loader_nb"], loaders["val_loader_nb"], loaders["stats_nb"]

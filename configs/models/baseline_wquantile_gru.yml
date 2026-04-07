@@ -25,9 +25,9 @@ best_config: {}
 # Slightly tighter than standard pinball — revenue weighting can amplify gradients
 # from high-value items making training less stable
 search_space:
-  optimiser_params.lr: [5.0e-5, 0.005, log]
-  optimiser_params.weight_decay: [1.0e-7, 0.001, log]
-  hidden: [32, 128, uniform]
-  layers: [1, 2, uniform]
-  dropout: [0.0, 0.3, uniform]
-  clip_grad_norm: [0.25, 1.5, uniform]
+  optimiser_params.lr: [4.0e-4, 0.0015, log]
+  optimiser_params.weight_decay: [1.0e-5, 5.0e-4, log]
+  hidden: [[64, 96, 128, 160], null, choice]
+  layers: [[1, 2], null, choice]
+  dropout: [0.0, 0.15, uniform]
+  clip_grad_norm: [0.3, 0.9, uniform]

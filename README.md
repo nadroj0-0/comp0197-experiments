@@ -187,7 +187,7 @@ def build_my_model(cfg):
 
 **Always cast `int()`** for hidden, layers, horizon etc — the search samples floats for all parameters and PyTorch will crash if you pass a float where it expects an int.
 
-For probabilistic models that output `(mu, sigma)` or `(mu, alpha)`, look at `build_prob_gru` or `build_prob_gru_nb` in `network.py` as a reference.
+For probabilistic models that output `(mu, sigma)` or `(mu, alpha)`, look at `build_baseline_prob_gru`, `build_baseline_prob_gru_nb`, `build_hierarchical_prob_gru`, or `build_hierarchical_prob_gru_nb` in `network.py` as references.
 
 ---
 

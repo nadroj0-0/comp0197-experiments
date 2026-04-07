@@ -925,7 +925,7 @@ def _run_full_pipeline(self_model, model_name: str,
             model_cfg = load_model_config(run_model_yml)
             model_type = model_cfg.get("model_type", "")
             is_model_prob = bool(model_cfg.get("probabilistic", False))
-            is_model_nb = model_type in ("baseline_gru_nb", "gru_nb", "hierarchical_gru_nb")
+            is_model_nb = model_type in ("baseline_gru_nb", "hierarchical_gru_nb")
 
             if is_model_nb:
                 tl = loaders["train_loader_nb"]

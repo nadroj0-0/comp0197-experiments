@@ -17,13 +17,13 @@ search:
   enabled: false
   sampling: stratified      # top/middle/bottom thirds of volume distribution
   top_k_series: 1000        # per stratum — 1000+1000+1000 = 3000 total
-  init_models: 10
+  init_models: 6
   schedule:
-    - epochs: 10
-      keep: 5
-    - epochs: 10
+    - epochs: 8
       keep: 3
-    - epochs: 20
+    - epochs: 8
+      keep: 2
+    - epochs: 15
       keep: 1
 
 # =============================================================================
@@ -71,10 +71,3 @@ models:
   #- hierarchical_gru_nb
   - hierarchical_quantile_gru
   #- hierarchical_wquantile_gru
-  # - gru_det
-  # - gru_prob
-  # - gru_nb
-  # - lstm_det
-  # - lstm_prob
-  # - transformer_det
-  # - transformer_prob

@@ -313,7 +313,7 @@ def full_train(name, builder, cfg, train_loader, val_loader, epochs, model_dir,
     ----
     name          : Model name used for saved files.
     builder       : Function (cfg) -> (model, criterion, optimiser, training_kwargs).
-                    Write one per model — see build_gru, build_lstm in network.py.
+                    Write one per model — see the baseline or hierarchical builders in network.py.
     cfg           : Full config dict passed to builder and saved with history.
     train_loader  : Training DataLoader.
     val_loader    : Validation DataLoader.

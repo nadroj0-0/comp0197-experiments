@@ -214,7 +214,7 @@ def main():
         )
         model_type    = model_cfg.get("model_type", "")
         is_prob       = bool(model_cfg.get("probabilistic", False))
-        is_nb         = model_type in ("baseline_gru_nb", "gru_nb", "hierarchical_gru_nb")
+        is_nb         = model_type in ("baseline_gru_nb", "hierarchical_gru_nb")
         is_hierarchical = model_type.startswith("hierarchical")
 
         # set n_features so builder sizes input layer correctly
