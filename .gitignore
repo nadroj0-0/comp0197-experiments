@@ -1,0 +1,16 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local datasets and generated artifacts
+data/*.csv
+data/raw_split.pkl
+runs/
+outputs/
+
+# Local archives and draft docs not needed for the repo
+configs.zip
+*.pdf
+
+# Editor / notebook noise
+.ipynb_checkpoints/

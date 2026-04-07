@@ -1,0 +1,34 @@
+# hierarchical_wquantile_gru.yml — GRU with hierarchy embeddings, revenue-weighted pinball loss
+model_name: hierarchical_wquantile_gru
+model_type: hierarchical_wquantile_gru
+probabilistic: false
+
+train_config:
+  autoregressive: true
+  feature_set: sales_yen_hierarchy
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.5           # tighter — revenue weighting amplifies gradients from high-value items
+  hidden: 128
+  layers: 2
+  dropout: 0.1
+  embed_dim: 8
+  quantiles: [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
+
+best_config: {}
+
+# Slightly tighter than standard quantile — revenue weighting can amplify gradients
+search_space:
+  optimiser_params.lr: [5.0e-5, 0.005, log]
+  optimiser_params.weight_decay: [1.0e-7, 0.001, log]
+  hidden: [64, 256, uniform]
+  layers: [1, 3, uniform]
+  dropout: [0.05, 0.3, uniform]
+  embed_dim: [4, 12, uniform]
+  clip_grad_norm: [0.25, 1.0, uniform]
