@@ -436,27 +436,41 @@ def _predict_from_trained_model(self_model, model_name: str, run_name: str):
     forecast_start = test_start + BaseModel.PRED_LENGTH
     forecast_end = forecast_start + horizon - 1
 
-    series_ids = featured["id"].drop_duplicates().tolist()
+    needed_cols = ["id", "d_num"] + feature_cols
+    featured_small = (
+        featured[needed_cols]
+        .sort_values(["id", "d_num"])
+        .reset_index(drop=True)
+    )
+
+    series_ids = []
     contexts = []
     future_feats = []
 
-    for sid in series_ids:
-        sub = featured[featured["id"] == sid].sort_values("d_num").reset_index(drop=True)
-        history = sub[sub["d_num"] < forecast_start]
-        if len(history) < seq_len:
+    for sid, sub in featured_small.groupby("id", sort=False):
+        d_nums = sub["d_num"].to_numpy()
+        feat_arr = sub[feature_cols].to_numpy(dtype=np.float32, copy=False)
+
+        hist_mask = d_nums < forecast_start
+        fut_mask = (d_nums >= forecast_start) & (d_nums <= forecast_end)
+
+        history_features = feat_arr[hist_mask]
+        future_features = feat_arr[fut_mask]
+
+        if len(history_features) < seq_len:
             raise ValueError(
-                f"Series {sid} has only {len(history)} rows before d_{forecast_start}, "
+                f"Series {sid} has only {len(history_features)} rows before d_{forecast_start}, "
                 f"but seq_len={seq_len} is required."
             )
 
-        future = sub[(sub["d_num"] >= forecast_start) & (sub["d_num"] <= forecast_end)]
-        if len(future) != horizon:
+        if len(future_features) != horizon:
             raise ValueError(
-                f"Series {sid} has {len(future)} future rows, expected {horizon}."
+                f"Series {sid} has {len(future_features)} future rows, expected {horizon}."
             )
 
-        contexts.append(history[feature_cols].tail(seq_len).values.astype(np.float32))
-        future_feats.append(future[feature_cols].values.astype(np.float32))
+        series_ids.append(sid)
+        contexts.append(history_features[-seq_len:])
+        future_feats.append(future_features)
 
     context_batch = np.stack(contexts)
     future_feat_batch = np.stack(future_feats)
