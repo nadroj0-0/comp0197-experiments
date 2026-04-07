@@ -107,8 +107,6 @@ def staged_search(search_space,train_loader,val_loader, builder, model_dir, base
     # --- initialise configs ---
     for i in range(initial_models):
         cfg = sample_config(base_config, search_space)
-        # session = create_training_session(images, labels, method, cfg.get("reg_dropout", dropout_prob), cfg,
-        #                                   training_step, **cfg)
         model, criterion, optimiser, training_kwargs = builder(cfg)
         session = TrainingSession(model=model, optimiser=optimiser, criterion=criterion, config=cfg,
                                   training_step=training_step, training_kwargs=training_kwargs)
@@ -119,10 +117,6 @@ def staged_search(search_space,train_loader,val_loader, builder, model_dir, base
         epochs, keep = stage["epochs"], stage["keep"]
         print(f"\nStage {stage_idx}: training {len(sessions)} models for {epochs} epochs")
         for i, (cfg, session) in enumerate(sessions):
-            # full_train(name=f"search_stage{stage_idx}_{i}", images=images, labels=labels, train_loader=train_loader,
-            #            val_loader=val_loader, method=method, epochs=epochs, model_dir=model_dir, config=cfg,
-            #            dropout_prob=cfg.get("reg_dropout", dropout_prob), training_step=training_step,
-            #            save_outputs=False, session=session)
             full_train(name=f"search_stage{stage_idx}_{i}", builder=builder, cfg=cfg, train_loader=train_loader,
                        val_loader=val_loader, epochs=epochs, model_dir=model_dir, training_step=training_step,
                        save_outputs=False, session=session)

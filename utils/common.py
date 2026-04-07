@@ -76,7 +76,6 @@ def init_optimiser(model, method, **kwargs):
             f"Invalid arguments for optimizer '{method}'."
             f'Expected signature: {method}{expected_signature}'
         )
-    #optim_method = optimiser_class(model.parameters(), lr=learn_rate, momentum=momentum_par)
     print('Optimiser created:', optim_method)
     return optim_method
 
@@ -96,8 +95,6 @@ def evaluate_model(data_loader, model, criterion, training_step=None, **kwargs):
             else:
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
-            # outputs = model(inputs)
-            # loss = criterion(outputs, labels)
             total_loss += loss.item() * labels.size(0)
             total_samples += labels.size(0)
             all_preds.append(outputs.detach().cpu())
@@ -159,15 +156,7 @@ def train_model(epochs, train_loader, val_loader, model, criterion, optim_method
                 if clip_grad_norm is not None:
                     nn.utils.clip_grad_norm_(model.parameters(),max_norm=clip_grad_norm)
                 optim_method.step()
-            # #outputs = model(inputs)
-            # #loss = criterion(outputs, labels)
-            # loss, outputs = training_step(model,inputs,labels,criterion,**kwargs)
-            # loss.backward()
-            # if clip_grad_norm is not None:
-            #     nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
-            # optim_method.step()
             batch_size = labels.size(0)
-            # loss_value = loss.item()
             loss_value = loss.detach()
             history['batch_losses'].append({
                 'epoch': epoch+1,

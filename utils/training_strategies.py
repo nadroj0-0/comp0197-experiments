@@ -19,9 +19,6 @@ def prob_gru_step(model, inputs, labels, criterion, **kwargs):
     """
     Training step for probabilistic GRU/LSTM.
     """
-    # mu, alpha = model(inputs)
-    # loss = criterion(mu, alpha, labels)
-    # return loss, mu  # return mu as predictions for metric computation
     mu, sigma = model(inputs)
     mu = mu.squeeze(-1)
     sigma = sigma.squeeze(-1)
