@@ -7,14 +7,14 @@
 # Comment/uncomment models to control what trains and evaluates.
 # =============================================================================
 
-run_name: test
+run_name: baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_manual
 
 # =============================================================================
 # SEARCH — hyperparameter search settings
 # Set enabled: false for submission (models train with configs already in ymls)
 # =============================================================================
 search:
-  enabled: true
+  enabled: false
   sampling: stratified      # top/middle/bottom thirds of volume distribution
   top_k_series: 1000        # per stratum — 1000+1000+1000 = 3000 total
   init_models: 10
@@ -33,18 +33,18 @@ train:
   split_protocol: yen_v1
   weight_protocol: yen_v1
   data_dir: ./data
-  sampling: top             # full dataset
-  top_k_series: 10       # ignored when sampling=all, kept for reference
+  sampling: all             # full dataset
+  top_k_series: 30490       # ignored when sampling=all, kept for reference
   feature_set: sales_yen_hierarchy   # sales_only | sales_hierarchy | sales_hierarchy_dow | sales_yen | sales_yen_hierarchy_dow
   seq_len: 28
   horizon: 28
-  autoregressive: true
+  autoregressive: false
   use_normalise: false
   epochs: 60
   early_stopping_patience: 8
   early_stopping_min_delta: 0.0005
   batch_size: 2048
-  num_workers: 0
+  num_workers: 8
   seed: 42
 
 # =============================================================================
@@ -66,11 +66,11 @@ models:
   #- baseline_gru_nb
   #- baseline_quantile_gru
   #- baseline_wquantile_gru
-  - hierarchical_gru_det
-  - hierarchical_gru_prob
-  - hierarchical_gru_nb
+  #- hierarchical_gru_det
+  #- hierarchical_gru_prob
+  #- hierarchical_gru_nb
   - hierarchical_quantile_gru
-  - hierarchical_wquantile_gru
+  #- hierarchical_wquantile_gru
   # - gru_det
   # - gru_prob
   # - gru_nb

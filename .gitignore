@@ -1,21 +1,46 @@
 .DS_Store
+**/.DS_Store
 __pycache__/
 *.pyc
 
 # Local datasets and generated artifacts
 data/*.csv
 data/raw_split.pkl
-runs/
 outputs/
+
+# Run artifacts
+runs/*
+!runs/baseline_ablation_sales_hierarchy_dow_embedded_seq2seq/
+!runs/baseline_ablation_sales_hierarchy_dow_embedded_seq2seq/**
+!runs/baseline_ablation_sales_hierarchy_dow_embedded_seq2seq_new_eval/
+!runs/baseline_ablation_sales_hierarchy_dow_embedded_seq2seq_new_eval/**
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq/
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq/**
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_old_eval/
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_old_eval/**
+runs/**/*.pt
+runs/**/*_train_history.json
+runs/**/*_search.json
 
 # Local archives and draft docs not needed for the repo
 configs.zip
 *.pdf
+utils.zip
+comp0197-experiments-jordan-v3.zip
 
 # Editor / notebook noise
 .ipynb_checkpoints/
 abc_train-yen.ipynb
 abc_inference-yen.ipynb
+Hybrid_model_training.ipynb
+lgbm_model.ipynb
 utils/optuna_search.py
 data/m5_preprocess.py
 data/m5_preprocess_cookbook.md
+
+# Local comparison/reference codebases and scratch files
+Applied-Deep-Learning-COMP019-GROUP-luke-modules/
+GroupV3/
+Teammates reference code/
+comp0197-experiments-jordan-v3/
+lgbm.py

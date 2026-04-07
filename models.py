@@ -139,7 +139,7 @@ def _nb_params_to_quantiles(mu, alpha, quantiles, n_samples=1000):
     q_vals   = torch.quantile(
         samples, torch.tensor(quantiles, dtype=torch.float32), dim=0
     )
-    return q_vals.permute(1, 0).cpu().numpy()
+    return q_vals.movedim(0, -1).cpu().numpy()
 
 
 def _gaussian_params_to_quantiles(mu, sigma, quantiles):
