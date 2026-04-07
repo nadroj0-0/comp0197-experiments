@@ -613,6 +613,17 @@ def _evaluate_predictions(self_model, model_name: str, run_name: str, preds_df: 
         "w_mae": w_mae,
     }
 
+    self_model._validate_preds(preds_df)
+    y_mat, q_arr, group_ids, scale = self_model._build_pinball_tensor(preds_df)
+    group_metrics = {
+        "model": model_name,
+        "wspl": float(self_model.compute_wspl(y_mat, q_arr, group_ids, scale)),
+        "crps": float(self_model.compute_crps(y_mat, q_arr, group_ids)),
+        **self_model.compute_coverage(preds_df, y_mat, group_ids),
+    }
+
+    metrics.update(group_metrics)
+
     if is_prob or is_nb or is_quantile:
         idx_025 = quantiles.index(0.025)
         idx_975 = quantiles.index(0.975)
@@ -620,10 +631,10 @@ def _evaluate_predictions(self_model, model_name: str, run_name: str, preds_df: 
         upper = q_preds[:, :, idx_975]
         coverage = float(((targets >= lower) & (targets <= upper)).mean())
         width = float((upper - lower).mean())
-        crps = _crps_from_quantiles(targets, q_preds, quantiles)
+        quantile_crps = _crps_from_quantiles(targets, q_preds, quantiles)
         metrics["coverage_95"] = coverage
         metrics["interval_width"] = width
-        metrics["crps"] = crps
+        metrics["quantile_crps"] = quantile_crps
 
     output_dir = model_dir / "plots"
     output_dir.mkdir(exist_ok=True)
@@ -672,14 +683,22 @@ def _evaluate_predictions(self_model, model_name: str, run_name: str, preds_df: 
 
     with open(model_dir / f"{model_name}_test_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
+    with open(model_dir / f"{model_name}_basemodel_metrics.json", "w") as f:
+        json.dump(group_metrics, f, indent=2)
 
     print(f"  RMSE={rmse:.4f}  MAE={mae:.4f}  MAPE={mape:.2f}%  R²={r2:.4f}")
     print(f"  W-RMSE={w_rmse:.4f}  W-MAE={w_mae:.4f}")
+    print(
+        f"  WSPL={metrics['wspl']:.4f}  "
+        f"CRPS={metrics['crps']:.4f}  "
+        f"CovErr95={metrics['coverage_error_95pct']:.4f}"
+    )
     if "coverage_95" in metrics:
         print(
             f"  Coverage(95%)={metrics['coverage_95']:.4f}  "
             f"Width={metrics['interval_width']:.4f}  "
-            f"CRPS={metrics['crps']:.4f}"
+            f"CRPS={metrics['crps']:.4f}  "
+            f"QCRPS={metrics['quantile_crps']:.4f}"
         )
 
     return metrics
