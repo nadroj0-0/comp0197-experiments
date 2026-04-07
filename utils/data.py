@@ -549,24 +549,14 @@ def build_dataloaders(
 
         if weight_protocol == "yen_v1":
             # Daily revenue weights over the last 28 training days
-            dates = train_df_raw["date"].unique()
-            dates.sort()
+            dates = np.sort(train_df_raw["date"].unique())
             last28_cutoff = dates[-28]
             last28_df = train_df_raw[train_df_raw["date"] >= last28_cutoff].copy()
-
-            last28_df = last28_df.merge(
-                calendar_df[["d", "wm_yr_wk"]], on="d", how="left"
-            )
-
-            last28_df = last28_df.merge(
-                prices_df[["store_id", "item_id", "wm_yr_wk", "sell_price"]],
-                on=["store_id", "item_id", "wm_yr_wk"], how="left"
-            )
-
-            last28_df["sell_price"] = (
-                last28_df.groupby("id")["sell_price"]
-                .transform(lambda x: x.ffill().fillna(0.0))
-            )
+            if "sell_price" not in last28_df.columns:
+                raise KeyError(
+                    "sell_price missing from train_df_raw while computing "
+                    "yen_v1 revenue weights"
+                )
 
             train_rev = (
                 (last28_df["sales"] * last28_df["sell_price"])

@@ -198,7 +198,12 @@ def run_config_tests():
             assert callable(resolved["training_step"]), f"step not callable for {name}"
 
     def t_train_configs_load():
-        from utils.config_loader import load_model_config
+        from utils.config_loader import (
+            load_experiment,
+            load_model_config,
+            load_effective_train_config,
+        )
+        exp_cfg = load_experiment(PROJECT_DIR / "configs" / "experiment.yml")
         model_names = [
             "baseline_gru_det", "baseline_gru_prob", "baseline_gru_nb",
             "baseline_quantile_gru", "baseline_wquantile_gru",
@@ -206,10 +211,10 @@ def run_config_tests():
             "hierarchical_quantile_gru", "hierarchical_wquantile_gru",
         ]
         for name in model_names:
-            cfg = load_model_config(
-                PROJECT_DIR / "configs" / "models" / f"{name}.yml")
+            model_yml = PROJECT_DIR / "configs" / "models" / f"{name}.yml"
+            cfg = load_model_config(model_yml)
             assert "train_config" in cfg, f"No train_config in {name}.yml"
-            tc = cfg["train_config"]
+            tc = load_effective_train_config(exp_cfg, model_yml)
             assert "epochs" in tc
             assert "horizon" in tc
             assert "seq_len" in tc
@@ -226,14 +231,12 @@ def run_config_tests():
 def run_routing_tests():
     print("\n── GROUP 4: Loader routing logic ────────────────────────────")
 
-    def t_nb_routes_to_nb_loaders():
-        # Verify is_nb=True triggers NB loader route — check the logic directly
-        from models import _load_loaders_for_model
-        # We can't run it without data, but we can verify the function exists
-        # and accepts the right args
+    def t_run_full_pipeline_exists():
+        from models import _run_full_pipeline
         import inspect
-        sig = inspect.signature(_load_loaders_for_model)
+        sig = inspect.signature(_run_full_pipeline)
         params = list(sig.parameters.keys())
+        assert "model_name" in params
         assert "is_nb" in params
         assert "is_prob" in params
         assert "model_type" in params
@@ -270,7 +273,7 @@ def run_routing_tests():
         assert "is_nb=False" in src
         assert "is_prob=False" in src
 
-    test("_load_loaders_for_model has correct signature", t_nb_routes_to_nb_loaders)
+    test("_run_full_pipeline has correct signature", t_run_full_pipeline_exists)
     test("wquantile model_type strings correct", t_wquantile_model_types_correct)
     test("NB models pass is_nb=True", t_nb_flags_correct)
     test("prob models pass is_prob=True", t_prob_flags_correct)

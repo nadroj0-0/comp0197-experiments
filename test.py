@@ -373,7 +373,7 @@ def evaluate_model(model_name: str, run_dir: Path,
     data_dir       = str(exp_eval.get("data_dir",    "./data"))
 
     # load test data — autoregressive=False to get full 28-day targets
-    _, _, test_loader, stats, _ = build_dataloaders(
+    _, _, test_loader, stats, _, _ = build_dataloaders(
         data_dir       = data_dir,
         seq_len        = seq_len,
         horizon        = horizon,
