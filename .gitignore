@@ -14,3 +14,5 @@ configs.zip
 
 # Editor / notebook noise
 .ipynb_checkpoints/
+abc_train-yen.ipynb
+abc_inference-yen.ipynb
