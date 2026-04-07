@@ -16,3 +16,6 @@ configs.zip
 .ipynb_checkpoints/
 abc_train-yen.ipynb
 abc_inference-yen.ipynb
+utils/optuna_search.py
+data/m5_preprocess.py
+data/m5_preprocess_cookbook.md
