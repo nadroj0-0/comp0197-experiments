@@ -105,7 +105,7 @@ def get_available_model_names():
     )
 
 
-def _build_featured_frame(self_model) -> pd.DataFrame:
+def _build_featured_frame(self_model, feature_set: str | None = None) -> pd.DataFrame:
     """
     Rebuild the long dataframe used by wrapper preprocessing and prediction.
     """
@@ -115,7 +115,8 @@ def _build_featured_frame(self_model) -> pd.DataFrame:
         self_model.test_raw,
     ]).reset_index(drop=True)
 
-    featured = encode_hierarchy(featured, include_dow=False)
+    include_dow = str(feature_set) == "sales_hierarchy_dow"
+    featured = encode_hierarchy(featured, include_dow=include_dow)
     featured["has_event"] = (
         (~featured["event_name_1"].astype(str).isin(["none", "nan", "None"]))
         .astype(np.float32)
@@ -410,10 +411,10 @@ def _predict_from_trained_model(self_model, model_name: str, run_name: str):
     if not model_path.exists():
         raise FileNotFoundError(f"Model weights not found: {model_path}")
 
-    self_model.load_and_split_data()
-    featured = _build_featured_frame(self_model)
-
     feature_set     = str(cfg.get("feature_set", "sales_yen_hierarchy"))
+    self_model.load_and_split_data()
+    featured = _build_featured_frame(self_model, feature_set=feature_set)
+
     feature_cols    = get_feature_cols(feature_set)
     horizon         = int(cfg.get("horizon", 28))
     seq_len         = int(cfg.get("seq_len", 28))
@@ -718,16 +719,20 @@ def _preprocess_from_base_model(self_model, model_name: str,
     run_dir       = PROJECT_DIR / "runs" / run_name
     run_model_yml = run_dir / "configs" / "models" / f"{model_name}.yml"
 
-    # fall back to project configs if run snapshot doesn't exist yet
-    if not run_model_yml.exists():
-        run_model_yml = MODELS_CFG_DIR / f"{model_name}.yml"
+    run_experiment_yml = run_dir / "configs" / "experiment.yml"
+    exp_yml = (
+        run_experiment_yml
+        if run_experiment_yml.exists()
+        else PROJECT_DIR / "configs" / "experiment.yml"
+    )
+    cfg_yml = (
+        run_model_yml
+        if run_model_yml.exists()
+        else MODELS_CFG_DIR / f"{model_name}.yml"
+    )
 
-    if run_model_yml.exists():
-        exp_cfg = load_experiment(run_dir / "configs" / "experiment.yml")
-        train_cfg = load_effective_train_config(exp_cfg, run_model_yml)
-    else:
-        exp_cfg = load_experiment(PROJECT_DIR / "configs" / "experiment.yml")
-        train_cfg = load_effective_train_config(exp_cfg, MODELS_CFG_DIR / f"{model_name}.yml")
+    exp_cfg = load_experiment(exp_yml)
+    train_cfg = load_effective_train_config(exp_cfg, cfg_yml)
 
     feature_set    = str(train_cfg.get("feature_set",    "sales_yen_hierarchy"))
     seq_len        = int(train_cfg.get("seq_len",         28))
@@ -751,7 +756,7 @@ def _preprocess_from_base_model(self_model, model_name: str,
         self_model.test_raw,
     ]).reset_index(drop=True)
 
-    include_dow = False   # Yen's pipeline doesn't have dow — add if needed
+    include_dow = feature_set == "sales_hierarchy_dow"
     featured = encode_hierarchy(featured, include_dow=include_dow)
     featured["has_event"] = (
         (~featured["event_name_1"].astype(str).isin(["none", "nan", "None"]))
@@ -928,6 +933,7 @@ def _run_full_pipeline(self_model, model_name: str,
             search_model(
                 model_name=model_name,
                 run_dir=run_dir,
+                exp_cfg=exp_cfg,
                 exp_search=exp_search,
                 registry=registry,
                 train_loader=tl,
