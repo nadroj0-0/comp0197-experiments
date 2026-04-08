@@ -208,3 +208,52 @@ def plot_training_curves(hist_path, model_name, save_path=None):
         print(f"  Saved: {save_path}")
     plt.close()
 
+
+def plot_model_comparison(item_id, actual_series, all_model_preds, save_path=None):
+    """Generates a high-level visual comparison of all models for a specific item."""
+    plt.figure(figsize=(14, 7))
+
+    # Luke's plots compare all models on the same top-weighted item over the
+    # 28-day target window. Keep that logic, but preserve our export settings.
+    x = np.arange(len(actual_series))
+    plt.plot(actual_series.values, label="Actual Sales", color="black", linewidth=2, zorder=3)
+
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+
+    for i, (name, preds_df) in enumerate(all_model_preds.items()):
+        item_preds = preds_df[preds_df["id"] == item_id].sort_values("day_ahead")
+        if item_preds.empty:
+            continue
+
+        color = colors[i % len(colors)]
+
+        if "q0.5" in item_preds.columns:
+            plt.plot(
+                x,
+                item_preds["q0.5"].to_numpy(),
+                label=f"{name} Median",
+                color=color,
+                linestyle="--" if "baseline" in name else "-",
+                linewidth=2,
+            )
+
+        if "q0.025" in item_preds.columns and "q0.975" in item_preds.columns:
+            plt.fill_between(
+                x,
+                item_preds["q0.025"].to_numpy(),
+                item_preds["q0.975"].to_numpy(),
+                color=color,
+                alpha=0.15,
+                label=f"{name} 95% CI",
+            )
+
+    plt.title(f"M5 Forecast Comparison: {item_id}", fontsize=14)
+    plt.xlabel("Days Ahead (1-28)", fontsize=12)
+    plt.ylabel("Sales Units", fontsize=12)
+    plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=9)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches="tight")
+        print(f"  Saved: {save_path}")
+    plt.close()

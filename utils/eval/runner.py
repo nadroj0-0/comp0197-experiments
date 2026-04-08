@@ -1,7 +1,55 @@
+import csv
 import json
 from pathlib import Path
 
+import pandas as pd
+
 from utils.configs.config_loader import load_experiment, load_registry
+from utils.eval.helpers import plot_model_comparison
+
+
+def _save_comparison_plots(run_dir: Path, exp_eval: dict, all_results: list[dict]) -> None:
+    if not all_results:
+        return
+
+    from models import get_model_class
+
+    first_model = all_results[0]["model"]
+    wrapper_cls = get_model_class(first_model)
+    wrapper = wrapper_cls(
+        data_dir=str(exp_eval.get("data_dir", "./data")),
+        output_dir="./outputs",
+        run_name=run_dir.name,
+        do_search=False,
+    )
+    wrapper.load_and_split_data()
+
+    actual_data = wrapper.test_raw[wrapper.test_raw["d_num"] >= wrapper.TARGET_START]
+    top_items = wrapper.item_weights.sort_values(ascending=False).head(3).index.tolist()
+
+    all_predictions = {}
+    for result in all_results:
+        model_name = result["model"]
+        preds_path = run_dir / "models" / model_name / f"{model_name}_predictions.csv"
+        if preds_path.exists():
+            all_predictions[model_name] = pd.read_csv(preds_path)
+
+    if not all_predictions:
+        return
+
+    plots_dir = run_dir / "comparison_plots"
+    plots_dir.mkdir(exist_ok=True)
+
+    for item_id in top_items:
+        item_actuals = actual_data[actual_data["id"] == item_id].sort_values("d_num")["sales"]
+        if item_actuals.empty:
+            continue
+        plot_model_comparison(
+            item_id=item_id,
+            actual_series=item_actuals,
+            all_model_preds=all_predictions,
+            save_path=plots_dir / f"comparison_{item_id}.png",
+        )
 
 
 def run_batch_evaluation(run_name: str, project_dir: Path, registry_path: Path, evaluate_model_fn):
@@ -71,6 +119,19 @@ def run_batch_evaluation(run_name: str, project_dir: Path, registry_path: Path, 
             json.dump(all_results, f, indent=2)
         print(f"\n  Combined metrics saved: {out_path}")
 
+        csv_path = run_dir / "model_comparison.csv"
+        fieldnames = list(all_results[0].keys())
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(all_results)
+        print(f"  Comparison CSV saved: {csv_path}")
+
+        try:
+            _save_comparison_plots(run_dir, exp_eval, all_results)
+            print(f"  Comparison plots saved: {run_dir / 'comparison_plots'}")
+        except Exception as exc:
+            print(f"  [WARN] Comparison plots skipped: {exc}")
+
     print(f"\n  Done — evaluated {len(all_results)}/{len(models)} models")
     return all_results
-
