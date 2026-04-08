@@ -4,15 +4,15 @@
 
 ## TL;DR — How to Add Your Model
 
-1. Write `build_your_model(cfg)` in `utils/network.py`
-2. Write `your_step(model, inputs, labels, criterion, **kwargs)` in `utils/training_strategies.py` (or reuse `gru_step` if your model is standard)
+1. Write `build_your_model(cfg)` in `utils/network/`
+2. Write `your_step(model, inputs, labels, criterion, **kwargs)` in `utils/training/strategies.py` (or reuse `gru_step` if your model is standard)
 3. Add your model to `configs/registry.yml`
 4. Create `configs/models/your_model.yml`
 5. If you want a BaseModel wrapper, add the wrapper class to `models/gru_models.py`
 6. Add your model name to `configs/experiment.yml`
 7. Run either `python legacy/legacy_train.py --experiment configs/experiment.yml` or `python train_gru_models.py --experiment configs/experiment.yml`
 
-That's it. Core infrastructure files (`common.py`, `experiment.py`, `hyperparameter.py`, `training_session.py`, `early_stopping.py`) implement the shared training pipeline and should not be modified.
+That's it. Core infrastructure modules under `utils/common/`, `utils/training/`, `utils/configs/`, `utils/data/`, and `utils/network/` implement the shared pipeline and should not be modified lightly.
 
 ## Setup
 
@@ -25,7 +25,7 @@ conda activate comp0197-group-pt
 
 ## Overview
 
-This framework standardises training, evaluation, and comparison of time-series forecasting models on M5. It separates model architecture (`network.py`), training logic (`training_strategies.py`), and experiment configuration (YAML files) so that only one variable changes between experiments — making ablation results directly comparable.
+This framework standardises training, evaluation, and comparison of time-series forecasting models on M5. It separates model architecture (`utils/network/`), training logic (`utils/training/strategies.py`), and experiment configuration (YAML files) so that only one variable changes between experiments — making ablation results directly comparable.
 
 There are now two entrypoint families:
 
@@ -55,10 +55,13 @@ Group/
 │   ├── registry.yml            ← maps model names to builder functions
 │   └── models/                 ← per-model overrides and search spaces
 └── utils/
-    ├── network.py              ← ADD YOUR MODEL CLASS + BUILDER HERE
-    ├── training_strategies.py  ← ADD YOUR TRAINING STEP HERE (if needed)
-    ├── data.py                 ← data pipeline (do not modify)
-    ├── common.py               ← training loop (do not modify)
+    ├── configs/                ← config loading, registry resolution, run snapshots
+    ├── data/                   ← data pipeline (do not modify)
+    ├── network/                ← ADD YOUR MODEL CLASS + BUILDER HERE
+    ├── training/               ← training sessions, strategies, hyperparameter search
+    ├── common/                 ← training loop, metrics, losses, serialisation
+    ├── eval/                   ← shared evaluation helpers
+    ├── runners/                ← shared runner prep utilities
     └── ...                     ← everything else (do not modify)
 ```
 
@@ -165,7 +168,7 @@ This is why some common settings now live in `experiment.yml`, while architectur
 
 ---
 
-## Step 1 — Write Your Builder (`utils/network.py`)
+## Step 1 — Write Your Builder (`utils/network/`)
 
 The builder takes a config dict and returns exactly four things:
 
@@ -191,11 +194,11 @@ def build_my_model(cfg):
 
 **Always cast `int()`** for hidden, layers, horizon etc — the search samples floats for all parameters and PyTorch will crash if you pass a float where it expects an int.
 
-For probabilistic models that output `(mu, sigma)` or `(mu, alpha)`, look at `build_baseline_prob_gru`, `build_baseline_prob_gru_nb`, `build_hierarchical_prob_gru`, or `build_hierarchical_prob_gru_nb` in `network.py` as references.
+For probabilistic models that output `(mu, sigma)` or `(mu, alpha)`, look at `build_baseline_prob_gru`, `build_baseline_prob_gru_nb`, `build_hierarchical_prob_gru`, or `build_hierarchical_prob_gru_nb` in `utils/network/` as references.
 
 ---
 
-## Step 2 — Write Your Training Step (`utils/training_strategies.py`)
+## Step 2 — Write Your Training Step (`utils/training/strategies.py`)
 
 Most models can reuse the existing `gru_step`. Only write a new one if your model has an unusual forward pass (e.g. multiple outputs, custom loss inputs):
 
@@ -458,7 +461,7 @@ Every time you run `legacy/legacy_train.py` or `train_gru_models.py`, the curren
 
 ---
 
-## `utils/data.py`
+## `utils/data/`
 
 The entire data pipeline lives here. You should not need to modify this.
 
@@ -478,7 +481,7 @@ The entire data pipeline lives here. You should not need to modify this.
 
 ---
 
-## `utils/network.py`
+## `utils/network/`
 
 All model classes and their builder functions. **This is where you add your model.**
 
@@ -503,7 +506,7 @@ Each class has a corresponding `build_*` function that constructs the model, los
 
 ---
 
-## `utils/training_strategies.py`
+## `utils/training/strategies.py`
 
 Training step functions — one per model type. Each takes `(model, inputs, labels, criterion, **kwargs)` and returns `(loss, outputs)`.
 
@@ -517,7 +520,7 @@ Training step functions — one per model type. Each takes `(model, inputs, labe
 
 ---
 
-## `utils/common.py`
+## `utils/common/`
 
 Core training loop and shared utilities. Do not modify.
 
@@ -551,7 +554,7 @@ The `Experiment` class orchestrates everything. Do not modify.
 
 ---
 
-## `utils/hyperparameter.py`
+## `utils/training/hyperparameter.py`
 
 Successive halving search implementation. Do not modify.
 
@@ -576,7 +579,7 @@ Centralised optimiser and scheduler construction. Do not modify — use it in yo
 
 ---
 
-## `utils/config_loader.py`
+## `utils/configs/config_loader.py`
 
 YAML config management. Do not modify.
 
@@ -602,7 +605,7 @@ YAML config management. Do not modify.
 
 ---
 
-## `utils/training_session.py`
+## `utils/training/session.py`
 
 | Class / Function | What it does |
 |---|---|

@@ -19,19 +19,22 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[0]))
 
 from utils.experiment import Experiment, get_model_dir
-from utils.config_loader import (
+from utils.configs.config_loader import (
     load_experiment,
     load_registry,
-    load_model_config,
     load_effective_train_config,
     load_search_space,
-    resolve_registry_entry,
     create_run_dir,
     snapshot_configs,
     write_best_config,
-    get_model_run_dir,
 )
-from utils.data import build_dataloaders, get_feature_cols
+from utils.runners.runner_utils import (
+    attach_model_metadata,
+    build_preloaded_experiment,
+    load_shared_data,
+    prepare_model_context,
+    select_model_loaders,
+)
 
 PROJECT_DIR     = Path(__file__).resolve().parent
 EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
@@ -41,65 +44,6 @@ MODELS_CFG_DIR  = PROJECT_DIR / "configs" / "models"
 
 # =============================================================================
 # DATA LOADING — load once upfront, mirrors legacy/legacy_train.py exactly
-# =============================================================================
-
-def _load_search_data(exp_search: dict, first_train_cfg: dict) -> dict:
-    """
-    Build the shared loaders used during search.
-
-    Search uses the same data logic as training, but usually on a smaller
-    stratified subset.
-    """
-    use_norm  = bool(first_train_cfg.get("use_normalise", False))
-
-    data_kwargs = dict(
-        data_dir       = first_train_cfg.get("data_dir", "./data"),
-        seq_len        = int(first_train_cfg.get("seq_len",  28)),
-        horizon        = int(first_train_cfg.get("horizon",  28)),
-        batch_size     = int(first_train_cfg.get("batch_size", 1024)),
-        top_k_series   = int(exp_search.get("top_k_series", 1000)),
-        feature_set    = str(first_train_cfg.get("feature_set", "sales_only")),
-        autoregressive = bool(first_train_cfg.get("autoregressive", True)),
-        use_normalise  = use_norm,
-        sampling       = str(exp_search.get("sampling", "stratified")),
-        max_series     = first_train_cfg.get("max_series"),
-        num_workers    = int(exp_search.get("num_workers", first_train_cfg.get("num_workers", 4))),
-        seed           = int(first_train_cfg.get("seed", 42)),
-        split_protocol = first_train_cfg.get("split_protocol", "default"),
-        weight_protocol= first_train_cfg.get("weight_protocol", "default"),
-    )
-
-    print(f"\n[search] Loading data once for all models...")
-    print(f"[search] Sampling  : {data_kwargs['sampling']} | "
-          f"top_k={data_kwargs['top_k_series']} | "
-          f"feature_set={data_kwargs['feature_set']}")
-
-    if not use_norm:
-        # single loader — all models share it (raw counts, no zscore)
-        train_loader, val_loader, _, stats, vocab_sizes, feature_index = build_dataloaders(**data_kwargs)
-        train_loader_w, _, _, _, _, _            = build_dataloaders(**data_kwargs, include_weights=True)
-        return dict(
-            train_loader_det       = train_loader,   val_loader_det   = val_loader, stats_det   = stats,
-            train_loader_gauss     = train_loader,   val_loader_gauss = val_loader, stats_gauss = stats,
-            train_loader_nb        = train_loader,   val_loader_nb    = val_loader, stats_nb    = stats,
-            train_loader_wquantile = train_loader_w, vocab_sizes = vocab_sizes,
-        )
-    else:
-        # three loaders — det gets zscore, prob and NB get raw log1p
-        tl_det,   vl_det,   _, s_det, vocab_sizes, feature_index   = build_dataloaders(**data_kwargs, zscore_target=True)
-        tl_gauss, vl_gauss, _, s_gauss, _, _ = build_dataloaders(**data_kwargs, zscore_target=False)
-        tl_nb,    vl_nb,    _, s_nb, _, _    = build_dataloaders(**data_kwargs, zscore_target=False)
-        tl_w,     _,        _, _, _, _      = build_dataloaders(**data_kwargs, zscore_target=True, include_weights=True)
-        return dict(
-            train_loader_det       = tl_det,   val_loader_det   = vl_det,   stats_det   = s_det,
-            train_loader_gauss     = tl_gauss, val_loader_gauss = vl_gauss, stats_gauss = s_gauss,
-            train_loader_nb        = tl_nb,    val_loader_nb    = vl_nb,    stats_nb    = s_nb,
-            train_loader_wquantile = tl_w, vocab_sizes = vocab_sizes,
-        )
-
-
-# =============================================================================
-# SINGLE MODEL SEARCH
 # =============================================================================
 
 def search_model(
@@ -116,33 +60,22 @@ def search_model(
     """
     Run search for one model and save the winner into the run snapshot.
     """
-    run_model_yml = run_dir / "configs" / "models" / f"{model_name}.yml"
-    model_dir     = get_model_run_dir(run_dir, model_name)
+    model_ctx = prepare_model_context(
+        model_name=model_name,
+        exp_cfg=exp_cfg,
+        run_dir=run_dir,
+        registry=registry,
+    )
+    run_model_yml = model_ctx["run_model_yml"]
+    model_dir = model_ctx["model_dir"]
 
     print(f"\n{'='*60}")
     print(f"  SEARCH: {model_name}")
     print(f"{'='*60}")
 
-    # --- load model config from run snapshot ---
-    model_cfg = load_model_config(run_model_yml)
-    train_cfg = load_effective_train_config(exp_cfg, run_model_yml)
-
-    # --- set n_features so builders size input layers correctly ---
-    feature_set             = str(train_cfg.get("feature_set", "sales_only"))
-    train_cfg["n_features"] = len(get_feature_cols(feature_set))
-    # --- inject vocab_sizes — hierarchical builders require this ---
-    # baseline builders ignore it safely (they don't read the key)
-    train_cfg["vocab_sizes"] = vocab_sizes
-
-    # --- resolve builder and step from registry ---
-    if model_name not in registry:
-        raise KeyError(
-            f"'{model_name}' not in registry.yml. "
-            f"Available: {sorted(registry.keys())}"
-        )
-    resolved = resolve_registry_entry(registry[model_name])
-    builder  = resolved["builder"]
-    step     = resolved["training_step"]
+    train_cfg = attach_model_metadata(model_ctx["train_cfg"], {"vocab_sizes": vocab_sizes})
+    builder = model_ctx["builder"]
+    step = model_ctx["training_step"]
 
     # --- load search space from run yml ---
     search_space = load_search_space(run_model_yml)
@@ -151,11 +84,12 @@ def search_model(
         return {}
 
     # --- create Experiment and inject pre-loaded loaders ---
-    exp              = Experiment(model_name, train_cfg, model_dir=model_dir)
-    exp.train_loader = train_loader
-    exp.val_loader   = val_loader
-    exp.stats        = stats
-    exp.preloaded    = True
+    exp = build_preloaded_experiment(
+        model_name,
+        train_cfg,
+        model_dir,
+        {"train_loader": train_loader, "val_loader": val_loader, "stats": stats},
+    )
 
     # --- run search via Experiment.search ---
     # This calls staged_search internally and updates exp.cfg with the winner
@@ -223,7 +157,12 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     # ------------------------------------------------------------------
     first_model_yml = run_dir / "configs" / "models" / f"{models[0]}.yml"
     first_train_cfg = load_effective_train_config(exp_cfg, first_model_yml)
-    loaders = _load_search_data(exp_search, first_train_cfg)
+    loaders = load_shared_data(
+        mode="search",
+        exp_section=exp_search,
+        first_train_cfg=first_train_cfg,
+        include_test=False,
+    )
     vocab_sizes = loaders.get("vocab_sizes", {})
     print(f"[search] Data loaded. Starting search loop.\n")
 
@@ -235,20 +174,17 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     # ------------------------------------------------------------------
     all_best = {}
     for model_name in models:
-        model_yml = run_dir / "configs" / "models" / f"{model_name}.yml"
-        model_cfg = load_model_config(model_yml)
-        model_type = model_cfg.get("model_type", "")
-        is_prob    = bool(model_cfg.get("probabilistic", False))
-        is_nb      = model_type in ("baseline_gru_nb", "hierarchical_gru_nb")
-
-        if is_nb:
-            tl, vl, st = loaders["train_loader_nb"], loaders["val_loader_nb"], loaders["stats_nb"]
-        elif model_type in ("baseline_wquantile_gru", "hierarchical_wquantile_gru"):
-            tl, vl, st = loaders["train_loader_wquantile"], loaders["val_loader_det"], loaders["stats_det"]
-        elif is_prob:
-            tl, vl, st = loaders["train_loader_gauss"], loaders["val_loader_gauss"], loaders["stats_gauss"]
-        else:
-            tl, vl, st = loaders["train_loader_det"], loaders["val_loader_det"], loaders["stats_det"]
+        model_ctx = prepare_model_context(
+            model_name=model_name,
+            exp_cfg=exp_cfg,
+            run_dir=run_dir,
+            registry=registry,
+        )
+        routed = select_model_loaders(
+            model_ctx["model_type"],
+            model_ctx["probabilistic"],
+            loaders,
+        )
 
         best = search_model(
             model_name   = model_name,
@@ -256,9 +192,9 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
             exp_cfg      = exp_cfg,
             exp_search   = exp_search,
             registry     = registry,
-            train_loader = tl,
-            val_loader   = vl,
-            stats        = st,
+            train_loader = routed["train_loader"],
+            val_loader   = routed["val_loader"],
+            stats        = routed["stats"],
             vocab_sizes=vocab_sizes,
         )
         all_best[model_name] = best

@@ -4,38 +4,33 @@ Hyperparameter search utilities.
 Implements staged random search with progressive pruning.
 """
 
-import random
 import math
-import json
+import random
 import time
 
-from utils.training_session import *
-from utils.common import *
+from utils.common import full_train, save_json
+
+from .session import TrainingSession
+from .strategies import gru_step
+
 
 class Leaderboard:
-    """
-    Simple leaderboard tracking validation losses.
-    """
     def __init__(self, sessions):
         self.entries = []
         for cfg, session in sessions:
             loss = min(m["validation_loss"] for m in session.history["epoch_metrics"])
-            self.entries.append({
-                "config": cfg,
-                "session": session,
-                "loss": loss
-            })
+            self.entries.append({"config": cfg, "session": session, "loss": loss})
+
     def add(self, cfg, session):
         loss = min(m["validation_loss"] for m in session.history["epoch_metrics"])
-        self.entries.append({
-            "config": cfg,
-            "session": session,
-            "loss": loss
-        })
+        self.entries.append({"config": cfg, "session": session, "loss": loss})
+
     def ranked(self):
         return sorted(self.entries, key=lambda x: x["loss"])
+
     def top(self, k):
         return self.ranked()[:k]
+
 
 def sample_uniform(low, high):
     return random.uniform(low, high)
@@ -55,6 +50,7 @@ def sample_parameter(low, high, mode):
         return random.choice(list(choices))
     raise ValueError(f"Unknown sampling mode: {mode}")
 
+
 def set_nested(cfg: dict, key: str, value):
     parts = key.split(".")
     d = cfg
@@ -64,20 +60,26 @@ def set_nested(cfg: dict, key: str, value):
         d = d[p]
     d[parts[-1]] = value
 
+
 def sample_config(base_config, search_space):
     import copy
+
     cfg = {} if base_config is None else copy.deepcopy(base_config)
     for param, spec in search_space.items():
         if not isinstance(spec, (list, tuple)) or len(spec) != 3:
-            raise ValueError(f"Search space for '{param}' must be a 3-item list/tuple, got: {spec}")
+            raise ValueError(
+                f"Search space for '{param}' must be a 3-item list/tuple, got: {spec}"
+            )
         low, high, mode = spec
         set_nested(cfg, param, sample_parameter(low, high, mode))
     return cfg
 
+
 def prune(sessions, keep):
     leaderboard = Leaderboard(sessions)
     best = leaderboard.top(keep)
-    return [(e["config"], e["session"]) for e in best]
+    return [(entry["config"], entry["session"]) for entry in best]
+
 
 def select_best(sessions):
     best_loss = float("inf")
@@ -90,26 +92,39 @@ def select_best(sessions):
     return best
 
 
-def staged_search(search_space,train_loader,val_loader, builder, model_dir, base_config=None,
-                  training_step=gru_step, save_outputs=False, schedule=None,
-                  initial_models=10, search_name="hyperparameter_search",**kwargs):
-    """
-    Generic successive-halving hyperparameter search.
-    """
+def staged_search(
+    search_space,
+    train_loader,
+    val_loader,
+    builder,
+    model_dir,
+    base_config=None,
+    training_step=gru_step,
+    save_outputs=False,
+    schedule=None,
+    initial_models=10,
+    search_name="hyperparameter_search",
+    **kwargs,
+):
     if schedule is None:
         schedule = [
             {"epochs": 10, "keep": math.ceil(initial_models / 2)},
             {"epochs": 10, "keep": math.ceil(initial_models / 4)},
-            {"epochs": 20, "keep": 1}
+            {"epochs": 20, "keep": 1},
         ]
     sessions = []
     run_records = {}
-    # --- initialise configs ---
     for i in range(initial_models):
         cfg = sample_config(base_config, search_space)
         model, criterion, optimiser, training_kwargs = builder(cfg)
-        session = TrainingSession(model=model, optimiser=optimiser, criterion=criterion, config=cfg,
-                                  training_step=training_step, training_kwargs=training_kwargs)
+        session = TrainingSession(
+            model=model,
+            optimiser=optimiser,
+            criterion=criterion,
+            config=cfg,
+            training_step=training_step,
+            training_kwargs=training_kwargs,
+        )
         session.id = f"model_{i}"
         sessions.append((cfg, session))
 
@@ -117,15 +132,24 @@ def staged_search(search_space,train_loader,val_loader, builder, model_dir, base
         epochs, keep = stage["epochs"], stage["keep"]
         print(f"\nStage {stage_idx}: training {len(sessions)} models for {epochs} epochs")
         for i, (cfg, session) in enumerate(sessions):
-            full_train(name=f"search_stage{stage_idx}_{i}", builder=builder, cfg=cfg, train_loader=train_loader,
-                       val_loader=val_loader, epochs=epochs, model_dir=model_dir, training_step=training_step,
-                       save_outputs=False, session=session)
+            full_train(
+                name=f"search_stage{stage_idx}_{i}",
+                builder=builder,
+                cfg=cfg,
+                train_loader=train_loader,
+                val_loader=val_loader,
+                epochs=epochs,
+                model_dir=model_dir,
+                training_step=training_step,
+                save_outputs=False,
+                session=session,
+            )
             if session.id not in run_records:
                 run_records[session.id] = {
                     "id": session.id,
                     "config": cfg.copy(),
                     "total_epochs": None,
-                    "epoch_metrics": []
+                    "epoch_metrics": [],
                 }
             run_records[session.id]["epoch_metrics"] = session.history["epoch_metrics"]
             run_records[session.id]["total_epochs"] = session.epoch
@@ -142,10 +166,11 @@ def staged_search(search_space,train_loader,val_loader, builder, model_dir, base
         "search_space": search_space,
         "best_config": best_cfg,
         "best_epoch_metrics": best_metrics,
-        "runs": list(run_records.values())
+        "runs": list(run_records.values()),
     }
     model_dir.mkdir(parents=True, exist_ok=True)
     summary_path = model_dir / f"{search_name}.json"
     save_json(search_summary, summary_path)
     print(f"\nHyperparameter search summary saved to: {summary_path}")
     return best_cfg
+

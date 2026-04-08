@@ -2,7 +2,7 @@ from torch.utils.data import DataLoader
 import torch
 from pathlib import Path
 from .common import *
-from .hyperparameter import staged_search
+from .training.hyperparameter import staged_search
 
 
 def get_model_dir(exp_name, base_dir=None):
@@ -84,7 +84,7 @@ class Experiment:
     def search(self, search_space, builder, training_step=gru_step,
                schedule=None, initial_models=20):
         """Run successive halving search and update self.cfg with winner."""
-        from utils.hyperparameter import staged_search
+        from utils.training.hyperparameter import staged_search
         print(f"\nStarting {self.name} hyperparameter search")
         best_cfg = staged_search(
             search_space,

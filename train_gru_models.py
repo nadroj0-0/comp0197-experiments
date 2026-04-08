@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
-from utils.config_loader import (
+from utils.configs.config_loader import (
     load_experiment,
     load_registry,
     create_run_dir,

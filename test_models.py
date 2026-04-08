@@ -71,15 +71,15 @@ def run_import_tests():
         # Check the main imports used by models/gru_models.py
         from utils.data import build_dataloaders, get_feature_cols
         from utils.experiment import Experiment
-        from utils.config_loader import (
+        from utils.configs.config_loader import (
             load_model_config, load_registry,
             resolve_registry_entry, create_run_dir,
             snapshot_configs, get_model_run_dir,
         )
         from utils.common import full_train, save_json
-        from utils.hyperparameter import staged_search
+        from utils.training.hyperparameter import staged_search
         from utils.network import build_baseline_gru, build_hierarchical_gru
-        from utils.training_strategies import gru_step, quantile_gru_step
+        from utils.training.strategies import gru_step, quantile_gru_step
 
     test("models/base_model.py imports cleanly", t_base_model)
     test("models package imports cleanly", t_models_module)
@@ -147,7 +147,7 @@ def run_instantiation_tests():
                 f"{cls.__name__} missing inherited load_and_split_data"
 
     def t_model_name_matches_registry():
-        from utils.config_loader import load_registry
+        from utils.configs.config_loader import load_registry
         registry = load_registry(PROJECT_DIR / "configs" / "registry.yml")
         for cls in all_classes:
             m = cls(run_name="test_sanity")
@@ -179,12 +179,12 @@ def run_config_tests():
     print("\n── GROUP 3: Config & registry ───────────────────────────────")
 
     def t_registry_loads():
-        from utils.config_loader import load_registry
+        from utils.configs.config_loader import load_registry
         reg = load_registry(PROJECT_DIR / "configs" / "registry.yml")
         assert len(reg) > 0
 
     def t_all_builders_resolve():
-        from utils.config_loader import load_registry, resolve_registry_entry
+        from utils.configs.config_loader import load_registry, resolve_registry_entry
         reg = load_registry(PROJECT_DIR / "configs" / "registry.yml")
         model_names = [
             "baseline_gru_det", "baseline_gru_prob", "baseline_gru_nb",
@@ -198,7 +198,7 @@ def run_config_tests():
             assert callable(resolved["training_step"]), f"step not callable for {name}"
 
     def t_train_configs_load():
-        from utils.config_loader import (
+        from utils.configs.config_loader import (
             load_experiment,
             load_model_config,
             load_effective_train_config,
@@ -328,7 +328,7 @@ def run_smoke_test(model_name: str):
     print("   WARNING: This loads real data and trains briefly.")
     print("   Artefacts saved to runs/test_smoke_run/\n")
 
-    from utils.config_loader import load_model_config
+    from utils.configs.config_loader import load_model_config
     yml_path = PROJECT_DIR / "configs" / "models" / f"{model_name}.yml"
     if not yml_path.exists():
         skip(f"smoke test {model_name}", f"{yml_path} not found")
