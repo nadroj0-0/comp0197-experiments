@@ -8,3 +8,6 @@ Import concrete submodules directly, e.g.:
 
 Keeping this package init lightweight avoids circular imports with utils.common.
 """
+
+from .early_stopping import EarlyStopping
+from .optimisation import OptimisationConfig

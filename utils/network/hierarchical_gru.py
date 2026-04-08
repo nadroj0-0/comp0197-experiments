@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from utils.optimisation import OptimisationConfig
+from utils.training.optimisation import OptimisationConfig
 
 from .baseline_gru import QUANTILES
 from .common import output_size, rounded_hidden_size
@@ -298,4 +298,3 @@ def build_hierarchical_wquantile_gru(cfg: dict):
         "val_r2": r2,
     }
     return model, criterion, optimiser, training_kwargs
-

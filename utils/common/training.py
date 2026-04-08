@@ -3,7 +3,7 @@ import time
 import torch
 import torch.nn as nn
 
-from utils.early_stopping import EarlyStopping
+from utils.training.early_stopping import EarlyStopping
 from utils.training.strategies import gru_step
 
 from .runtime import device

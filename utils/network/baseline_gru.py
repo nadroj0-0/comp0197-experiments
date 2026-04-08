@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from utils.optimisation import OptimisationConfig
+from utils.training.optimisation import OptimisationConfig
 
 from .common import HorizonConditionedHead, n_features, output_size
 
@@ -251,4 +251,3 @@ def build_baseline_wquantile_gru(cfg):
         "val_r2": r2,
     }
     return model, criterion, optimiser, training_kwargs
-
