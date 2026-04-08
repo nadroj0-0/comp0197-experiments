@@ -6,7 +6,7 @@
 # The winning params are written into the run snapshot so final training can
 # reuse them without changing the source configs.
 #
-# Can be called from train.py or run on its own:
+# Can be called from legacy/legacy_train.py or run on its own:
 #   python search.py
 #   python search.py --experiment configs/experiment.yml
 # =============================================================================
@@ -40,7 +40,7 @@ MODELS_CFG_DIR  = PROJECT_DIR / "configs" / "models"
 
 
 # =============================================================================
-# DATA LOADING — load once upfront, mirrors train.py exactly
+# DATA LOADING — load once upfront, mirrors legacy/legacy_train.py exactly
 # =============================================================================
 
 def _load_search_data(exp_search: dict, first_train_cfg: dict) -> dict:
@@ -199,7 +199,7 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     """
     Run search for every model in the experiment.
 
-    Data is loaded once, then routed per model just like in train.py.
+    Data is loaded once, then routed per model just like in legacy/legacy_train.py.
     """
     registry   = load_registry(REGISTRY_PATH)
     exp_search = exp_cfg.get("search", {})
@@ -228,7 +228,7 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     print(f"[search] Data loaded. Starting search loop.\n")
 
     # ------------------------------------------------------------------
-    # Route correct loaders to each model — same logic as train.py
+    # Route correct loaders to each model — same logic as legacy/legacy_train.py
     # det models    → zscore loaders (loaders_det)
     # prob models   → raw count loaders (loaders_gauss)
     # NB models     → raw count loaders (loaders_nb)

@@ -1,5 +1,5 @@
 # =============================================================================
-# train.py — M5 Sales Forecasting — V3
+# legacy_train.py — M5 Sales Forecasting — V3
 # COMP0197 Applied Deep Learning
 #
 # Registry-driven training entrypoint.
@@ -7,10 +7,10 @@
 # then trains every requested model with shared full-data loaders.
 #
 # Usage:
-#   python train.py                          — uses configs/experiment.yml
-#   python train.py --batch_size 4096        — override batch size for GPU
-#   python train.py --num_workers 8          — override workers for GPU
-#   python train.py --experiment configs/experiment.yml  — explicit path
+#   python legacy/legacy_train.py                          — uses configs/experiment.yml
+#   python legacy/legacy_train.py --batch_size 4096        — override batch size for GPU
+#   python legacy/legacy_train.py --num_workers 8          — override workers for GPU
+#   python legacy/legacy_train.py --experiment configs/experiment.yml  — explicit path
 # =============================================================================
 
 import argparse

@@ -19,7 +19,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+sys.path.append(str(Path(__file__).resolve().parent))
 
 from utils.config_loader import (
     load_experiment,
@@ -31,7 +31,7 @@ from utils.config_loader import (
 from utils.data import build_dataloaders, denormalise, get_feature_cols
 from models import get_model_class, get_available_model_names
 
-PROJECT_DIR     = Path(__file__).resolve().parents[1]
+PROJECT_DIR     = Path(__file__).resolve().parent
 EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
 REGISTRY_PATH   = PROJECT_DIR / "configs" / "registry.yml"
 

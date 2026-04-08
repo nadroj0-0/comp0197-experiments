@@ -1,13 +1,13 @@
 # =============================================================================
-# test.py — Forecast Evaluation & Visualisation — V3
+# legacy_test.py — Forecast Evaluation & Visualisation — V3
 # COMP0197 Applied Deep Learning
 #
 # Legacy evaluation runner for the original registry-based path.
 #
 # Usage:
-#   python test.py
-#   python test.py --run_name sales_only_top200
-#   python test.py --experiment configs/experiment.yml
+#   python legacy/legacy_test.py
+#   python legacy/legacy_test.py --run_name sales_only_top200
+#   python legacy/legacy_test.py --experiment configs/experiment.yml
 # =============================================================================
 
 import argparse
