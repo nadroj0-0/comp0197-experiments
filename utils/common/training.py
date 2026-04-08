@@ -184,43 +184,6 @@ def train_model(
             "stopped_epoch": early_stopper.stopped_epoch,
         }
     return history
-
-
-def full_train_old(
-    name,
-    images,
-    labels,
-    train_loader,
-    val_loader,
-    method,
-    epochs,
-    model_dir,
-    config=None,
-    dropout_prob=0.0,
-    training_step=gru_step,
-    save_outputs=True,
-    session=None,
-    **kwargs,
-):
-    from utils.training.session import create_training_session
-
-    start_time = time.time()
-    if session is None:
-        session = create_training_session(
-            images, labels, method, dropout_prob, config, training_step, **kwargs
-        )
-    session.train(epochs, train_loader, val_loader)
-    model_path, history_path = None, None
-    if save_outputs:
-        model_path = save_model(session.model, name, model_dir)
-        history_path = save_history(
-            session.history, name, "train", session.model, model_dir, config=config
-        )
-    elapsed = time.time() - start_time
-    print(f"\n{name} training completed in {elapsed:.2f} seconds")
-    return session.model, session.history, model_path, history_path
-
-
 def full_train(
     name,
     builder,

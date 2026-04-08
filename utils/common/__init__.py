@@ -10,7 +10,7 @@ from .serialisation import (
     save_json,
     save_model,
 )
-from .training import evaluate_model, full_train, full_train_old, train_model
+from .training import evaluate_model, full_train, train_model
 from utils.training.strategies import (
     gru_step,
     prob_gru_step,

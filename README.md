@@ -610,4 +610,3 @@ YAML config management. Do not modify.
 | Class / Function | What it does |
 |---|---|
 | `TrainingSession` | Stateful wrapper around model + optimiser + criterion. Tracks epoch count across multiple `.train()` calls — needed for successive halving where the same session is trained in multiple stages. |
-| `create_training_session(...)` | Factory function. Builds model via builder, wraps in TrainingSession. |
