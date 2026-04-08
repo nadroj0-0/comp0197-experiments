@@ -32,8 +32,6 @@ There are now two active entrypoint families:
 - `legacy/legacy_train.py` / `search.py` = the original registry-driven training + search pipeline
 - `train_gru_models.py` / `test_gru_models.py` = the BaseModel-facing wrapper train + evaluation pipeline
 
-The old legacy evaluation runner has been archived at `archive/legacy_test.py` and is no longer part of the supported workflow.
-
 Both save into `runs/run_name/`. Configs are snapshotted at the start of each run, and search results are written back into the run copy, so runs stay reproducible even if the source YAML changes later.
 
 ---
@@ -42,8 +40,6 @@ Both save into `runs/run_name/`. Configs are snapshotted at the start of each ru
 
 ```
 Group/
-├── archive/
-│   └── legacy_test.py         ← archived legacy evaluation runner (not part of active workflow)
 ├── legacy/
 │   └── legacy_train.py         ← original training entry point
 ├── search.py                   ← hyperparameter search runner
@@ -129,7 +125,7 @@ preds = m.predict()
 metrics = m.evaluate(preds)
 ```
 
-This is mainly intended for the GRU/baseline/hierarchical wrapper models. The original registry-based training/search path is still there if you want to use the full pipeline directly, but wrapper evaluation is the supported evaluation path.
+This is mainly intended for the GRU/baseline/hierarchical wrapper models. The original registry-based training/search path is still there if you want to use the full pipeline directly, but `test_gru_models.py` is the supported evaluation path for active runs.
 
 ---
 
@@ -450,7 +446,7 @@ Weights sum to 1 across all series. High-revenue items get proportionally more i
 
 Every time you run `legacy/legacy_train.py` or `train_gru_models.py`, the current state of `experiment.yml` and all referenced model ymls are copied into `runs/run_name/configs/`. This means:
 
-- Re-running `test.py` always uses the exact config that trained the model, even if you've edited the configs since
+- Re-running `test_gru_models.py` always uses the exact config that trained the model, even if you've edited the configs since
 - If hyperparameter search ran, the winning config is already merged into the run snapshot
 - Different `run_name` values create completely independent output directories — nothing is ever overwritten
 
