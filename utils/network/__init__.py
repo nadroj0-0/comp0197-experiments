@@ -4,7 +4,6 @@ from .baseline_gru import (
     BaselineProbGRU_NB,
     BaselineQuantileGRU,
     QUANTILES,
-    SalesGRU,
     build_baseline_gru,
     build_baseline_prob_gru,
     build_baseline_prob_gru_nb,
@@ -23,4 +22,3 @@ from .hierarchical_gru import (
     build_hierarchical_quantile_gru,
     build_hierarchical_wquantile_gru,
 )
-

@@ -4,8 +4,6 @@ from pathlib import Path
 
 import torch
 
-from .runtime import device
-
 
 def save_model(model, name, model_dir):
     model_dir.mkdir(exist_ok=True)
@@ -43,15 +41,6 @@ def extract_epoch_metrics(history: dict):
     train_acc = [m.get("train_accuracy") for m in metrics]
     val_acc = [m["validation_accuracy"] for m in metrics]
     return epochs, train_acc, val_acc
-
-
-def load_model(dropout_prob: float, weights_path: Path) -> torch.nn.Module:
-    from utils.network import SalesGRU
-
-    model = SalesGRU(dropout=dropout_prob).to(device)
-    model.load_state_dict(torch.load(weights_path, map_location=device))
-    model.eval()
-    return model
 
 
 def save_json(data, path):

@@ -489,16 +489,8 @@ All model classes and their builder functions. **This is where you add your mode
 | `BaselineProbGRU` | Vanilla GRU → (mu, sigma) heads. Gaussian NLL. |
 | `BaselineProbGRU_NB` | Vanilla GRU → (mu, alpha) heads. Negative Binomial NLL. |
 | `BaselineQuantileGRU` | Vanilla GRU → n_quantiles head. Pinball loss. |
-| `SalesGRU` | Full GRU with input projection, LayerNorm, and HorizonConditionedHead. |
-| `SalesLSTM` | Same as SalesGRU but LSTM encoder. |
-| `SalesTransformer` | Transformer encoder with positional encoding and HorizonConditionedHead. |
-| `ProbGRU / ProbLSTM / ProbSalesTransformer` | Probabilistic variants of the full models (Gaussian NLL). |
-| `ProbGRU_NB` | Full GRU with Negative Binomial output. |
 | `HierarchicalGRU` + variants | All baseline GRU variants with learned hierarchy embeddings via `_HierarchyEmbedder`. |
-| `HorizonConditionedHead` | Attention-based decoder. Takes full encoder output, produces one prediction per horizon step using learnable horizon embeddings as queries. Used by all full models. |
 | `_HierarchyEmbedder` | Shared embedding block for hierarchical models. Replaces raw integer hierarchy columns with dense learned vectors. |
-| `ResidualForecastHead` | Residual MLP block used inside HorizonConditionedHead. |
-| `PositionalEncoding` | Standard sinusoidal positional encoding for the Transformer. |
 
 Each class has a corresponding `build_*` function that constructs the model, loss, optimiser, and training kwargs from a config dict.
 

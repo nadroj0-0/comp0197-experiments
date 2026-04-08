@@ -3,32 +3,7 @@ import torch.nn as nn
 
 from utils.training.optimisation import OptimisationConfig
 
-from .common import HorizonConditionedHead, n_features, output_size
-
-
-class SalesGRU(nn.Module):
-    def __init__(self, input_size=1, hidden_size=128, num_layers=2, dropout=0.2, horizon=28):
-        super().__init__()
-        self.input_proj = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.GELU(),
-            nn.LayerNorm(hidden_size),
-        )
-        self.gru = nn.GRU(
-            input_size=hidden_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0.0,
-        )
-        self.norm = nn.LayerNorm(hidden_size)
-        self.decoder = HorizonConditionedHead(hidden_size, horizon, dropout)
-
-    def forward(self, x):
-        x = self.input_proj(x)
-        enc_out, _ = self.gru(x)
-        enc_out = self.norm(enc_out)
-        return self.decoder(enc_out)
+from .common import n_features, output_size
 
 
 class BaselineGRU(nn.Module):

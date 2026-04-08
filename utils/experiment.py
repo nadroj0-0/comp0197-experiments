@@ -1,8 +1,6 @@
-import torch
 from pathlib import Path
 from .common import *
 from .data import init_seed
-from .training.hyperparameter import staged_search
 
 
 def get_model_dir(exp_name, base_dir=None):
@@ -11,31 +9,6 @@ def get_model_dir(exp_name, base_dir=None):
     model_dir = base_dir / "models" / exp_name
     model_dir.mkdir(parents=True, exist_ok=True)
     return model_dir
-
-def evaluate_confidence(model, data_loader):
-    """
-    Compute mean max softmax confidence across a dataset.
-    A well-calibrated model produces lower confidence than an overfit one.
-
-    Args:
-        model       (torch.nn.Module): Trained model in eval mode.
-        data_loader (DataLoader):      Dataset to evaluate over.
-
-    Returns:
-        float: Mean of the maximum softmax probability across all samples.
-    """
-    model.eval()
-    total_confidence = 0.0
-    total_samples    = 0
-    with torch.no_grad():
-        for inputs, _ in data_loader:
-            inputs   = inputs.to(device)
-            logits   = model(inputs)
-            probs    = torch.softmax(logits, dim=1)
-            max_prob = probs.max(dim=1).values
-            total_confidence += max_prob.sum().item()
-            total_samples    += inputs.size(0)
-    return total_confidence / total_samples
 
 class Experiment:
     """

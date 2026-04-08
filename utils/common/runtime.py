@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,19 +5,6 @@ import torch.optim as optim
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
-
-
-def init_model(images, dropout_prob=0.0):
-    from utils.network import SalesGRU
-
-    print("\nCreating model...")
-    model = SalesGRU(dropout_prob).to(device)
-    print(model)
-    print("\nTesting forward pass...")
-    images = images.to(device)
-    outputs = model(images)
-    print("Model output shape:", outputs.shape)
-    return model, outputs
 
 
 def init_loss(model, train_loader, loss_fn=None):
@@ -57,4 +42,3 @@ def init_optimiser(model, method, **kwargs):
         )
     print("Optimiser created:", optim_method)
     return optim_method
-

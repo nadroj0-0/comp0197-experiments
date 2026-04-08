@@ -1,10 +1,9 @@
 from .losses import gaussian_nll_loss, nb_nll_loss, pinball_loss, weighted_pinball_loss
 from .metrics import mae, mape, r2, rmse
-from .runtime import device, init_loss, init_model, init_optimiser
+from .runtime import device, init_loss, init_optimiser
 from .serialisation import (
     extract_epoch_metrics,
     load_history,
-    load_model,
     save_history,
     save_json,
     save_model,
