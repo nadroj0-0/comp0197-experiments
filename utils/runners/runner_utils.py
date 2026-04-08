@@ -10,6 +10,49 @@ from utils.data import build_dataloaders, get_feature_cols
 from utils.experiment import Experiment
 
 
+def _first_non_none(*values):
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
+def build_loader_cache_key(
+    *,
+    mode: str,
+    exp_section: dict,
+    first_train_cfg: dict,
+    include_test: bool,
+    batch_size_override=None,
+    num_workers_override=None,
+) -> tuple:
+    if mode == "search":
+        batch_size = int(_first_non_none(first_train_cfg.get("batch_size"), 1024))
+        num_workers = int(_first_non_none(exp_section.get("num_workers"), first_train_cfg.get("num_workers"), 4))
+    else:
+        batch_size = int(_first_non_none(batch_size_override, first_train_cfg.get("batch_size"), exp_section.get("batch_size"), 1024))
+        num_workers = int(_first_non_none(num_workers_override, first_train_cfg.get("num_workers"), exp_section.get("num_workers"), 4))
+
+    return (
+        mode,
+        str(_first_non_none(first_train_cfg.get("data_dir"), exp_section.get("data_dir"), "./data")),
+        int(first_train_cfg.get("seq_len", 28)),
+        int(first_train_cfg.get("horizon", 28)),
+        batch_size,
+        int(exp_section.get("top_k_series", 1000 if mode == "search" else 30490)),
+        str(first_train_cfg.get("feature_set", "sales_only")),
+        bool(first_train_cfg.get("autoregressive", True)),
+        bool(first_train_cfg.get("use_normalise", False)),
+        str(exp_section.get("sampling", "stratified" if mode == "search" else "all")),
+        first_train_cfg.get("max_series"),
+        num_workers,
+        int(first_train_cfg.get("seed", 42)),
+        str(_first_non_none(first_train_cfg.get("split_protocol"), exp_section.get("split_protocol"), "default")),
+        str(_first_non_none(first_train_cfg.get("weight_protocol"), exp_section.get("weight_protocol"), "default")),
+        bool(include_test),
+    )
+
+
 def load_shared_data(
     *,
     mode: str,
@@ -22,20 +65,20 @@ def load_shared_data(
     use_norm = bool(first_train_cfg.get("use_normalise", False))
     if mode == "search":
         data_kwargs = dict(
-            data_dir=first_train_cfg.get("data_dir", "./data"),
+            data_dir=_first_non_none(first_train_cfg.get("data_dir"), exp_section.get("data_dir"), "./data"),
             seq_len=int(first_train_cfg.get("seq_len", 28)),
             horizon=int(first_train_cfg.get("horizon", 28)),
-            batch_size=int(first_train_cfg.get("batch_size", 1024)),
+            batch_size=int(_first_non_none(first_train_cfg.get("batch_size"), 1024)),
             top_k_series=int(exp_section.get("top_k_series", 1000)),
             feature_set=str(first_train_cfg.get("feature_set", "sales_only")),
             autoregressive=bool(first_train_cfg.get("autoregressive", True)),
             use_normalise=use_norm,
             sampling=str(exp_section.get("sampling", "stratified")),
             max_series=first_train_cfg.get("max_series"),
-            num_workers=int(exp_section.get("num_workers", first_train_cfg.get("num_workers", 4))),
+            num_workers=int(_first_non_none(exp_section.get("num_workers"), first_train_cfg.get("num_workers"), 4)),
             seed=int(first_train_cfg.get("seed", 42)),
-            split_protocol=first_train_cfg.get("split_protocol", "default"),
-            weight_protocol=first_train_cfg.get("weight_protocol", "default"),
+            split_protocol=_first_non_none(first_train_cfg.get("split_protocol"), "default"),
+            weight_protocol=_first_non_none(first_train_cfg.get("weight_protocol"), "default"),
         )
         print("\n[search] Loading data once for all models...")
         print(
@@ -45,20 +88,20 @@ def load_shared_data(
         )
     else:
         data_kwargs = dict(
-            data_dir=exp_section.get("data_dir", "./data"),
+            data_dir=_first_non_none(first_train_cfg.get("data_dir"), exp_section.get("data_dir"), "./data"),
             seq_len=int(first_train_cfg.get("seq_len", 28)),
             horizon=int(first_train_cfg.get("horizon", 28)),
-            batch_size=int(batch_size_override or exp_section.get("batch_size", 1024)),
+            batch_size=int(_first_non_none(batch_size_override, first_train_cfg.get("batch_size"), exp_section.get("batch_size"), 1024)),
             top_k_series=int(exp_section.get("top_k_series", 30490)),
             feature_set=str(first_train_cfg.get("feature_set", "sales_only")),
             autoregressive=bool(first_train_cfg.get("autoregressive", True)),
             use_normalise=use_norm,
             sampling=str(exp_section.get("sampling", "all")),
             max_series=first_train_cfg.get("max_series"),
-            num_workers=int(num_workers_override or exp_section.get("num_workers", 4)),
+            num_workers=int(_first_non_none(num_workers_override, first_train_cfg.get("num_workers"), exp_section.get("num_workers"), 4)),
             seed=int(first_train_cfg.get("seed", 42)),
-            split_protocol=exp_section.get("split_protocol", "default"),
-            weight_protocol=exp_section.get("weight_protocol", "default"),
+            split_protocol=_first_non_none(first_train_cfg.get("split_protocol"), exp_section.get("split_protocol"), "default"),
+            weight_protocol=_first_non_none(first_train_cfg.get("weight_protocol"), exp_section.get("weight_protocol"), "default"),
         )
         print("\n[train] Loading data once for all experiments...")
         print(f"[train] sampling    : {data_kwargs['sampling']}")

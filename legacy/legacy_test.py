@@ -44,7 +44,7 @@ EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
 REGISTRY_PATH   = PROJECT_DIR / "configs" / "registry.yml"
 
 DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-QUANTILES = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
+QUANTILES = [0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975]
 
 # Default run name for quick local use. CLI can override it.
 RUN_NAME = "baseline_ablation_sales_only"
@@ -69,7 +69,7 @@ def parse_args():
 # REVENUE WEIGHTS
 # =============================================================================
 
-def compute_item_weights(data_dir: str, top_k: int, sampling: str = "all") -> np.ndarray:
+def compute_item_weights(data_dir: str, top_k: int, sampling: str = "all") -> pd.Series:
     sales_df  = pd.read_csv(f"{data_dir}/sales_train_evaluation.csv")
     prices_df = pd.read_csv(f"{data_dir}/sell_prices.csv")
 
@@ -84,9 +84,8 @@ def compute_item_weights(data_dir: str, top_k: int, sampling: str = "all") -> np
     sales_df["total_sales_volume"] = sales_df[train_day_cols].sum(axis=1)
     item_revenues = sales_df["total_sales_volume"].values * sales_df["sell_price"].values
 
-    # Sort to match test_loader order: alphabetical by id (item_id+store_id concatenated)
-    # data.py sorts featured by ['id', 'date'] where 'id' = item_id_store_id string
-    sales_df["_series_id"] = sales_df["item_id"] + "_" + sales_df["store_id"]
+    # Match the exact M5 series ids used by the dataloaders and saved runs.
+    sales_df["_series_id"] = sales_df["id"]
     sales_df["_revenue"] = item_revenues
     sales_df = sales_df.sort_values("_series_id").reset_index(drop=True)
 
@@ -96,9 +95,14 @@ def compute_item_weights(data_dir: str, top_k: int, sampling: str = "all") -> np
         vol_sorted = sales_df.sort_values("total_sales_volume", ascending=False)
         sales_df = vol_sorted.head(top_k).sort_values("_series_id").reset_index(drop=True)
 
-    weights = sales_df["_revenue"].values
+    weights = sales_df.set_index("_series_id")["_revenue"].astype(np.float32)
     weights = weights / weights.sum()
-    return weights.astype(np.float32)
+    return weights
+
+
+def _cfg_int(cfg: dict, key: str, default: int) -> int:
+    value = cfg.get(key)
+    return default if value is None else int(value)
 
 
 # =============================================================================
@@ -145,8 +149,8 @@ def evaluate_model(model_name: str, run_dir: Path,
 
     # model params from saved config; data params from eval block
     autoregressive = bool(cfg.get("autoregressive", True))
-    horizon        = int(cfg.get("horizon",         28))
-    seq_len        = int(cfg.get("seq_len",          28))
+    horizon        = _cfg_int(cfg, "horizon", 28)
+    seq_len        = _cfg_int(cfg, "seq_len", 28)
     use_normalise  = bool(cfg.get("use_normalise",  False))
     # feature_set for data loading must match training — a sales_only model
     # cannot accept sales_hierarchy_dow inputs. eval block can override
@@ -155,13 +159,14 @@ def evaluate_model(model_name: str, run_dir: Path,
     top_k_series   = int(exp_eval.get("top_k_series",   30490))
     sampling       = str(exp_eval.get("sampling",        "all"))
     data_dir       = str(exp_eval.get("data_dir",    "./data"))
+    split_protocol = str(exp_eval.get("split_protocol", cfg.get("split_protocol", "default")))
 
     # load test data — autoregressive=False to get full 28-day targets
     _, _, test_loader, stats, _, _ = build_dataloaders(
         data_dir       = data_dir,
         seq_len        = seq_len,
         horizon        = horizon,
-        batch_size     = int(cfg.get("batch_size", 256)),
+        batch_size     = _cfg_int(cfg, "batch_size", 256),
         top_k_series   = top_k_series,
         feature_set    = feature_set,
         autoregressive = False,
@@ -170,7 +175,8 @@ def evaluate_model(model_name: str, run_dir: Path,
         zscore_target  = not is_prob,
         max_series     = cfg.get("max_series"),
         num_workers    = 0,
-        seed           = int(cfg.get("seed", 42)),
+        seed           = _cfg_int(cfg, "seed", 42),
+        split_protocol = split_protocol,
     )
 
     # n_features must match what the model was trained with — use saved cfg,
@@ -281,10 +287,15 @@ def evaluate_model(model_name: str, run_dir: Path,
         top_k    = top_k_series,
         sampling = sampling,
     )
+    sample_series_ids = [sid for sid, _ in test_loader.dataset.samples]
+    sample_weights = item_weights.reindex(sample_series_ids).fillna(0.0).to_numpy(dtype=np.float32)
+    total_sample_weight = sample_weights.sum()
+    if total_sample_weight > 0:
+        sample_weights /= total_sample_weight
     per_item_mse = ((preds_orig - targets_orig) ** 2).mean(axis=1)
     per_item_mae = np.abs(preds_orig - targets_orig).mean(axis=1)
-    w_rmse = float(np.sqrt((item_weights * per_item_mse).sum()))
-    w_mae  = float((item_weights * per_item_mae).sum())
+    w_rmse = float(np.sqrt((sample_weights * per_item_mse).sum()))
+    w_mae  = float((sample_weights * per_item_mae).sum())
     print(f"  W-RMSE={w_rmse:.4f}  W-MAE={w_mae:.4f}")
     metrics_dict["w_rmse"] = w_rmse
     metrics_dict["w_mae"]  = w_mae
@@ -396,7 +407,8 @@ def evaluate_model(model_name: str, run_dir: Path,
         elif is_prob and aux_np is not None:
             mu_i    = preds_np[idx] if use_normalise else preds_orig[idx]
             sigma_i = aux_np[idx]
-            z_vals  = [-1.96, -1.645, -0.674, 0.0, 0.674, 1.645, 1.96]
+            q_tensor = torch.tensor(quantiles, dtype=torch.float32)
+            z_vals  = torch.distributions.Normal(0.0, 1.0).icdf(q_tensor).cpu().numpy()
             if use_normalise:
                 q_orig = np.clip(
                     np.expm1(
@@ -409,7 +421,7 @@ def evaluate_model(model_name: str, run_dir: Path,
                     np.stack([mu_i + z * sigma_i for z in z_vals], axis=1),
                     0, 500
                 )
-            plot_quantile_forecast(hist, true, q_orig, QUANTILES,
+            plot_quantile_forecast(hist, true, q_orig, quantiles,
                                    item_name=name, save_path=save_path, rmse=r)
         elif is_quantile and aux_np is not None:
             if aux_np.ndim == 3:

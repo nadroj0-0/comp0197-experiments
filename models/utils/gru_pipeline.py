@@ -198,6 +198,7 @@ def run_full_pipeline(self_model, model_name: str, run_name: str = None,
                 val_loader=routed["val_loader"],
                 stats=routed["stats"],
                 vocab_sizes=loaders.get("vocab_sizes", {}),
+                feature_index=loaders.get("feature_index", {}),
             )
             print(f"\n[models] Search detour complete for {model_name}")
 

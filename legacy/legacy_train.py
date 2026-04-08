@@ -23,13 +23,13 @@ from utils.experiment import Experiment
 from utils.configs.config_loader import (
     load_experiment,
     load_registry,
-    load_effective_train_config,
     create_run_dir,
     snapshot_configs,
 )
 from utils.common import save_json
 from utils.runners.runner_utils import (
     attach_model_metadata,
+    build_loader_cache_key,
     build_preloaded_experiment,
     load_shared_data,
     prepare_model_context,
@@ -107,30 +107,13 @@ def main():
         print(f"\n[train] Search complete — proceeding to full training.\n")
 
     # ------------------------------------------------------------------
-    # 4. Load full training data once
-    # All models in an experiment share the same data settings by design
-    # Use the first model's effective config for data field values
+    # 4. Load full training data per effective model config, with caching
+    # Models can now diverge on autoregressive / feature / split settings
+    # without silently sharing the wrong loader bundle.
     # ------------------------------------------------------------------
-    exp_train       = exp_cfg.get("train", {})
-    first_model_yml = run_dir / "configs" / "models" / f"{models[0]}.yml"
-    first_train_cfg = load_effective_train_config(
-        exp_cfg,
-        first_model_yml,
-        runtime_overrides={
-            "batch_size": args.batch_size,
-            "num_workers": args.num_workers,
-        },
-    )
-
-    loaders = load_shared_data(
-        mode="train",
-        exp_section=exp_train,
-        first_train_cfg=first_train_cfg,
-        include_test=True,
-        batch_size_override=args.batch_size,
-        num_workers_override=args.num_workers,
-    )
-    print("[train] Data loaded. Starting training loop.\n")
+    exp_train = exp_cfg.get("train", {})
+    loader_cache = {}
+    print("[train] Preparing per-model cached loaders.\n")
 
     # ------------------------------------------------------------------
     # 5. Train each model
@@ -150,6 +133,24 @@ def main():
                 "num_workers": args.num_workers,
             },
         )
+        cache_key = build_loader_cache_key(
+            mode="train",
+            exp_section=exp_train,
+            first_train_cfg=model_ctx["train_cfg"],
+            include_test=True,
+            batch_size_override=args.batch_size,
+            num_workers_override=args.num_workers,
+        )
+        if cache_key not in loader_cache:
+            loader_cache[cache_key] = load_shared_data(
+                mode="train",
+                exp_section=exp_train,
+                first_train_cfg=model_ctx["train_cfg"],
+                include_test=True,
+                batch_size_override=args.batch_size,
+                num_workers_override=args.num_workers,
+            )
+        loaders = loader_cache[cache_key]
         train_cfg = attach_model_metadata(model_ctx["train_cfg"], loaders)
         routed = select_model_loaders(
             model_ctx["model_type"],

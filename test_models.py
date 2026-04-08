@@ -67,6 +67,24 @@ def run_import_tests():
             HierarchicalQuantileGRU, HierarchicalWQuantileGRU,
         )
 
+    def t_wrapper_lookup_api():
+        from models import get_available_model_names, get_model_class
+
+        expected_names = {
+            "baseline_gru_det", "baseline_gru_prob", "baseline_gru_nb",
+            "baseline_quantile_gru", "baseline_wquantile_gru",
+            "hierarchical_gru_det", "hierarchical_gru_prob", "hierarchical_gru_nb",
+            "hierarchical_quantile_gru", "hierarchical_wquantile_gru",
+        }
+        available = set(get_available_model_names())
+        assert available == expected_names, (
+            f"Wrapper lookup mismatch. expected={sorted(expected_names)} "
+            f"got={sorted(available)}"
+        )
+        for model_name in sorted(expected_names):
+            cls = get_model_class(model_name)
+            assert getattr(cls, "model_name", None) == model_name
+
     def t_pipeline_imports():
         # Check the main imports used by models/gru_models.py
         from utils.data import build_dataloaders, get_feature_cols
@@ -84,6 +102,7 @@ def run_import_tests():
     test("models/base_model.py imports cleanly", t_base_model)
     test("models package imports cleanly", t_models_module)
     test("all 10 model classes importable", t_all_classes)
+    test("wrapper lookup API resolves all 10 models", t_wrapper_lookup_api)
     test("all pipeline dependencies resolve", t_pipeline_imports)
 
 

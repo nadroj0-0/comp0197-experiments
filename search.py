@@ -22,7 +22,6 @@ from utils.experiment import Experiment, get_model_dir
 from utils.configs.config_loader import (
     load_experiment,
     load_registry,
-    load_effective_train_config,
     load_search_space,
     create_run_dir,
     snapshot_configs,
@@ -30,6 +29,7 @@ from utils.configs.config_loader import (
 )
 from utils.runners.runner_utils import (
     attach_model_metadata,
+    build_loader_cache_key,
     build_preloaded_experiment,
     load_shared_data,
     prepare_model_context,
@@ -56,6 +56,7 @@ def search_model(
     val_loader,
     stats,
     vocab_sizes:  dict,
+    feature_index: dict,
 ) -> dict:
     """
     Run search for one model and save the winner into the run snapshot.
@@ -73,7 +74,10 @@ def search_model(
     print(f"  SEARCH: {model_name}")
     print(f"{'='*60}")
 
-    train_cfg = attach_model_metadata(model_ctx["train_cfg"], {"vocab_sizes": vocab_sizes})
+    train_cfg = attach_model_metadata(
+        model_ctx["train_cfg"],
+        {"vocab_sizes": vocab_sizes, "feature_index": feature_index},
+    )
     builder = model_ctx["builder"]
     step = model_ctx["training_step"]
 
@@ -150,21 +154,8 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
     print(f"[search] Init mods : {exp_search.get('init_models', 10)}")
     print(f"[search] Schedule  : {exp_search.get('schedule')}")
 
-    # ------------------------------------------------------------------
-    # Load data ONCE using the first model's config for data settings
-    # All models in an experiment share the same data settings
-    # (feature_set, seq_len, horizon, autoregressive, use_normalise)
-    # ------------------------------------------------------------------
-    first_model_yml = run_dir / "configs" / "models" / f"{models[0]}.yml"
-    first_train_cfg = load_effective_train_config(exp_cfg, first_model_yml)
-    loaders = load_shared_data(
-        mode="search",
-        exp_section=exp_search,
-        first_train_cfg=first_train_cfg,
-        include_test=False,
-    )
-    vocab_sizes = loaders.get("vocab_sizes", {})
-    print(f"[search] Data loaded. Starting search loop.\n")
+    loader_cache = {}
+    print(f"[search] Preparing per-model cached loaders.\n")
 
     # ------------------------------------------------------------------
     # Route correct loaders to each model — same logic as legacy/legacy_train.py
@@ -180,6 +171,22 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
             run_dir=run_dir,
             registry=registry,
         )
+        cache_key = build_loader_cache_key(
+            mode="search",
+            exp_section=exp_search,
+            first_train_cfg=model_ctx["train_cfg"],
+            include_test=False,
+        )
+        if cache_key not in loader_cache:
+            loader_cache[cache_key] = load_shared_data(
+                mode="search",
+                exp_section=exp_search,
+                first_train_cfg=model_ctx["train_cfg"],
+                include_test=False,
+            )
+        loaders = loader_cache[cache_key]
+        vocab_sizes = loaders.get("vocab_sizes", {})
+        feature_index = loaders.get("feature_index", {})
         routed = select_model_loaders(
             model_ctx["model_type"],
             model_ctx["probabilistic"],
@@ -196,6 +203,7 @@ def run_search(exp_cfg: dict, run_dir: Path) -> dict:
             val_loader   = routed["val_loader"],
             stats        = routed["stats"],
             vocab_sizes=vocab_sizes,
+            feature_index=feature_index,
         )
         all_best[model_name] = best
 

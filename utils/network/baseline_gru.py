@@ -173,7 +173,7 @@ class BaselineQuantileGRU(nn.Module):
         hidden_size=64,
         num_layers=1,
         dropout=0.0,
-        n_quantiles=7,
+        n_quantiles=9,
         horizon=1,
     ):
         super().__init__()
@@ -196,7 +196,7 @@ class BaselineQuantileGRU(nn.Module):
         return raw.view(raw.size(0), self.horizon, self.n_quantiles)
 
 
-QUANTILES = [0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975]
+QUANTILES = [0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975]
 
 
 def build_baseline_quantile_gru(cfg):

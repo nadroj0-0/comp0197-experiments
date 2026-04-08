@@ -82,11 +82,12 @@ def main():
     # Use the models directory next to the chosen experiment file
     experiment_path = Path(args.experiment)
     models_cfg_dir = experiment_path.parent / "models"
+    if not models_cfg_dir.exists():
+        models_cfg_dir = MODELS_CFG_DIR
     snapshot_configs(
         run_dir        = run_dir,
         experiment_yml = args.experiment,
         model_names    = models,
-        #models_cfg_dir = MODELS_CFG_DIR,
         models_cfg_dir = models_cfg_dir,
     )
 
