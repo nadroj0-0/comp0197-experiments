@@ -471,7 +471,6 @@ Every time you run `legacy/legacy_train.py` or `train_gru_models.py`, the curren
 ---
 
 # File Reference
-### Why are you still reading? The guide ended ages ago. No one actually reads documentation, keep it stepping already.
 
 ---
 
