@@ -233,7 +233,7 @@ probabilistic: false
 
 train_config:
   autoregressive: false         # false = seq2seq (recommended), true = AR rollout
-  feature_set: sales_hierarchy_dow
+  feature_set: sales_yen_hierarchy
   optimiser: adamw
   optimiser_params:
     lr: 0.001
@@ -345,19 +345,27 @@ Depending on `feature_set`, static hierarchy columns are integer-encoded:
 | `sales_only` | raw sales | 1 |
 | `sales_hierarchy` | sales + state, store, cat, dept | 5 |
 | `sales_hierarchy_dow` | sales + hierarchy + day of week | 6 |
+| `sales_yen` | sales + price/calendar/SNAP/event features | 10 |
+| `sales_yen_hierarchy` | yen-style features + hierarchy IDs | 14 |
 
-Integer encoding uses pandas `cat.codes` which guarantees 0-indexed contiguous IDs. **All models in the group should use `sales_hierarchy_dow` for comparability.**
+Integer encoding uses pandas `cat.codes` which guarantees 0-indexed contiguous IDs. Choose the feature set that matches your experiment protocol. The current submission config uses `sales_yen_hierarchy`.
 
 **5. Temporal split**
-The split is purely date-based — no shuffling ever happens across the time axis:
+The split is purely date-based — no shuffling ever happens across the time axis. The legacy/data-loader path supports two protocols:
 
 ```
-Train : d1    → d1885   (days 1–1885)
-Val   : d1886 → d1913   (28 days)
-Test  : d1914 → d1941   (28 days, held out)
+default:
+  Train : d1    → d1885
+  Val   : d1886 → d1913
+  Test  : d1914 → d1941
+
+yen_v1:
+  Train : d1    → d1773
+  Val   : d1774 → d1885
+  Test  : d1886 → d1941
 ```
 
-This is enforced by date boundaries, not index slicing, so it's robust to reordering. **Every model must use these exact boundaries for results to be comparable.**
+This is enforced by date boundaries, not index slicing, so it's robust to reordering. The current submission config uses `split_protocol: yen_v1`, which aligns the active training/evaluation workflow with the wrapper/BaseModel split regime.
 
 **6. Normalisation (optional, off by default)**
 If `use_normalise=True`, sales are log1p transformed and z-score normalised using stats fitted on the train split only. Stats are never computed on val or test data. Saved to `normalisation_stats.json` for use at evaluation time. **Most models in this project use `use_normalise=False` (raw counts).**
@@ -391,18 +399,26 @@ This is controlled by `autoregressive` in your model yml. It affects what `y` lo
 
 ## Feature Sets — What Each Column Is
 
-When `feature_set: sales_hierarchy_dow` your model receives input tensors of shape `(batch, seq_len, 6)`:
+The current submission setup uses `feature_set: sales_yen_hierarchy`, so the active input tensor shape is `(batch, seq_len, 14)`:
 
 | Column index | Feature | Type | Notes |
 |---|---|---|---|
 | 0 | `sales` | float | Raw unit sales count (or log1p normalised if `use_normalise=True`) |
-| 1 | `state_id_int` | int-as-float | 0-indexed state ID (3 unique values for full M5) |
-| 2 | `store_id_int` | int-as-float | 0-indexed store ID (10 unique values) |
-| 3 | `cat_id_int` | int-as-float | 0-indexed category ID (3 unique values) |
-| 4 | `dept_id_int` | int-as-float | 0-indexed department ID (7 unique values) |
-| 5 | `day_of_week` | float | 0=Monday … 6=Sunday |
+| 1 | `sell_price` | float | Daily selling price after forward-fill within each series |
+| 2 | `is_available` | float | 1 if a non-missing price exists for that day, else 0 |
+| 3 | `wday` | float | M5 calendar weekday index |
+| 4 | `month` | float | Calendar month |
+| 5 | `year` | float | Calendar year |
+| 6 | `snap_CA` | float | SNAP flag for California |
+| 7 | `snap_TX` | float | SNAP flag for Texas |
+| 8 | `snap_WI` | float | SNAP flag for Wisconsin |
+| 9 | `has_event` | float | 1 if `event_name_1` is present, else 0 |
+| 10 | `state_id_int` | int-as-float | 0-indexed state ID |
+| 11 | `store_id_int` | int-as-float | 0-indexed store ID |
+| 12 | `cat_id_int` | int-as-float | 0-indexed category ID |
+| 13 | `dept_id_int` | int-as-float | 0-indexed department ID |
 
-Hierarchy columns are stored as `float32` in the tensor but represent integer category codes. Standard models treat them as raw floats. Hierarchical models cast them to `long` and pass them through embedding tables.
+Hierarchy columns are stored as `float32` in the tensor but represent integer category codes. Baseline models treat them as raw numeric inputs. Hierarchical models cast them to `long` and pass them through embedding tables.
 
 ---
 
@@ -465,7 +481,7 @@ The entire data pipeline lives here. You should not need to modify this.
 
 | Function / Class | What it does |
 |---|---|
-| `build_dataloaders(...)` | Main entry point. Call this to get `(train_loader, val_loader, test_loader, stats, vocab_sizes)` |
+| `build_dataloaders(...)` | Main entry point. Call this to get `(train_loader, val_loader, test_loader, stats, vocab_sizes, feature_index)` |
 | `WindowedM5Dataset` | PyTorch Dataset that generates sliding windows per series. Handles both autoregressive (scalar y) and direct multi-step (vector y) modes |
 | `get_feature_cols(feature_set)` | Returns the list of column names for a given feature set |
 | `get_vocab_sizes(df)` | Returns a dict of `{col: n_unique}` for hierarchy embedding tables |
@@ -557,7 +573,7 @@ Successive halving search implementation. Do not modify.
 
 ---
 
-## `utils/optimisation.py`
+## `utils/training/optimisation.py`
 
 Centralised optimiser and scheduler construction. Do not modify — use it in your builder.
 
@@ -583,11 +599,12 @@ YAML config management. Do not modify.
 | `snapshot_configs(run_dir, ...)` | Copies all relevant configs into the run directory for reproducibility. |
 | `write_best_config(model_yml, best_cfg)` | Merges winning search config back into the run yml after search completes. |
 | `build_effective_train_config(...)` | Merges experiment defaults, model config, search winner, and runtime overrides. |
+| `load_effective_train_config(...)` | Loads a model yml and returns the merged effective train config used by the active pipelines. |
 | `load_search_space(path)` | Extracts the `search_space` block from a model yml. |
 
 ---
 
-## `utils/early_stopping.py`
+## `utils/training/early_stopping.py`
 
 | Class | What it does |
 |---|---|
