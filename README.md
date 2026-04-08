@@ -27,10 +27,12 @@ conda activate comp0197-group-pt
 
 This framework standardises training, evaluation, and comparison of time-series forecasting models on M5. It separates model architecture (`utils/network/`), training logic (`utils/training/strategies.py`), and experiment configuration (YAML files) so that only one variable changes between experiments — making ablation results directly comparable.
 
-There are now two entrypoint families:
+There are now two active entrypoint families:
 
-- `legacy/legacy_train.py` / `legacy/legacy_test.py` = the original registry-driven pipeline
-- `train_gru_models.py` / `test_gru_models.py` = the BaseModel-facing wrapper pipeline
+- `legacy/legacy_train.py` / `search.py` = the original registry-driven training + search pipeline
+- `train_gru_models.py` / `test_gru_models.py` = the BaseModel-facing wrapper train + evaluation pipeline
+
+The old legacy evaluation runner has been archived at `archive/legacy_test.py` and is no longer part of the supported workflow.
 
 Both save into `runs/run_name/`. Configs are snapshotted at the start of each run, and search results are written back into the run copy, so runs stay reproducible even if the source YAML changes later.
 
@@ -40,8 +42,9 @@ Both save into `runs/run_name/`. Configs are snapshotted at the start of each ru
 
 ```
 Group/
+├── archive/
+│   └── legacy_test.py         ← archived legacy evaluation runner (not part of active workflow)
 ├── legacy/
-│   ├── legacy_test.py          ← original evaluation runner
 │   └── legacy_train.py         ← original training entry point
 ├── search.py                   ← hyperparameter search runner
 ├── models/
@@ -84,7 +87,6 @@ python legacy/legacy_train.py --experiment configs/my_experiment.yml
 python train_gru_models.py --experiment configs/my_experiment.yml
 
 # Run evaluation and generate plots
-python legacy/legacy_test.py
 python test_gru_models.py
 ```
 
@@ -127,7 +129,7 @@ preds = m.predict()
 metrics = m.evaluate(preds)
 ```
 
-This is mainly intended for the GRU/baseline/hierarchical wrapper models. The original registry-based path is still there if you want to use the full pipeline directly.
+This is mainly intended for the GRU/baseline/hierarchical wrapper models. The original registry-based training/search path is still there if you want to use the full pipeline directly, but wrapper evaluation is the supported evaluation path.
 
 ---
 
