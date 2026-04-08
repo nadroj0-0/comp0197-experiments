@@ -7,23 +7,23 @@
 # Comment/uncomment models to control what trains and evaluates.
 # =============================================================================
 
-run_name: baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_manual
+run_name: baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search
 
 # =============================================================================
 # SEARCH — hyperparameter search settings
 # Set enabled: false for submission (models train with configs already in ymls)
 # =============================================================================
 search:
-  enabled: false
+  enabled: true
   sampling: stratified      # top/middle/bottom thirds of volume distribution
-  top_k_series: 1000        # per stratum — 1000+1000+1000 = 3000 total
-  init_models: 6
+  top_k_series: 1500        # per stratum — 1500+1500+1500 = 4500 total
+  init_models: 8
   schedule:
-    - epochs: 8
+    - epochs: 10
       keep: 3
-    - epochs: 8
+    - epochs: 10
       keep: 2
-    - epochs: 15
+    - epochs: 20
       keep: 1
 
 # =============================================================================
@@ -66,8 +66,8 @@ models:
   #- baseline_gru_nb
   #- baseline_quantile_gru
   #- baseline_wquantile_gru
-  #- hierarchical_gru_det
-  #- hierarchical_gru_prob
+  - hierarchical_gru_det
+  - hierarchical_gru_prob
   #- hierarchical_gru_nb
   - hierarchical_quantile_gru
   #- hierarchical_wquantile_gru

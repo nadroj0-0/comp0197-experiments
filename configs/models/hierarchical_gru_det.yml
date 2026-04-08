@@ -4,7 +4,7 @@ model_type: hierarchical_gru
 probabilistic: false
 
 train_config:
-  autoregressive: true          # update to false if seq2seq wins AR vs S2S comparison
+  autoregressive: false
   feature_set: sales_yen_hierarchy
   optimiser: adamw
   optimiser_params:
