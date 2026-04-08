@@ -8,9 +8,9 @@
 2. Write `your_step(model, inputs, labels, criterion, **kwargs)` in `utils/training_strategies.py` (or reuse `gru_step` if your model is standard)
 3. Add your model to `configs/registry.yml`
 4. Create `configs/models/your_model.yml`
-5. If you want a BaseModel wrapper, add the wrapper class to `models.py`
+5. If you want a BaseModel wrapper, add the wrapper class to `models/gru_models.py`
 6. Add your model name to `configs/experiment.yml`
-7. Run either `python train.py --experiment configs/experiment.yml` or `python train_gru_models.py --experiment configs/experiment.yml`
+7. Run either `python scripts/train.py --experiment configs/experiment.yml` or `python scripts/train_gru_models.py --experiment configs/experiment.yml`
 
 That's it. Core infrastructure files (`common.py`, `experiment.py`, `hyperparameter.py`, `training_session.py`, `early_stopping.py`) implement the shared training pipeline and should not be modified.
 
@@ -27,10 +27,10 @@ conda activate comp0197-group-pt
 
 This framework standardises training, evaluation, and comparison of time-series forecasting models on M5. It separates model architecture (`network.py`), training logic (`training_strategies.py`), and experiment configuration (YAML files) so that only one variable changes between experiments — making ablation results directly comparable.
 
-There are now two entrypoints:
+There are now two entrypoint families:
 
-- `train.py` / `test.py` = the original registry-driven pipeline
-- `train_gru_models.py` / `test_gru_models.py` = the BaseModel-facing wrapper pipeline
+- `scripts/train.py` / `scripts/test.py` = the original registry-driven pipeline
+- `scripts/train_gru_models.py` / `scripts/test_gru_models.py` = the BaseModel-facing wrapper pipeline
 
 Both save into `runs/run_name/`. Configs are snapshotted at the start of each run, and search results are written back into the run copy, so runs stay reproducible even if the source YAML changes later.
 
@@ -40,12 +40,16 @@ Both save into `runs/run_name/`. Configs are snapshotted at the start of each ru
 
 ```
 Group/
-├── train.py                    ← original registry-based training entry point
-├── train_gru_models.py         ← BaseModel-facing training entry point
+├── scripts/
+│   ├── train.py                ← original registry-based training entry point
+│   ├── train_gru_models.py     ← BaseModel-facing training entry point
+│   ├── test.py                 ← original evaluation runner
+│   └── test_gru_models.py      ← wrapper-based evaluation runner
 ├── search.py                   ← hyperparameter search runner
-├── test.py                     ← original evaluation runner
-├── test_gru_models.py          ← wrapper-based evaluation runner
-├── models.py                   ← BaseModel wrapper classes for GRU-family models
+├── models/
+│   ├── base_model.py           ← shared BaseModel abstraction
+│   ├── gru_models.py           ← wrapper classes for GRU-family models
+│   └── __init__.py             ← re-exports wrapper-facing imports
 ├── configs/
 │   ├── experiment.yml          ← run-level defaults, search settings, model list
 │   ├── registry.yml            ← maps model names to builder functions
@@ -64,21 +68,21 @@ Group/
 
 ```bash
 # Train all models listed in experiment.yml using the original pipeline
-python train.py
+python scripts/train.py
 
 # Train all models listed in experiment.yml using the BaseModel wrappers
-python train_gru_models.py
+python scripts/train_gru_models.py
 
 # Override batch size / workers for GPU in the original pipeline
-python train.py --batch_size 4096 --num_workers 8
+python scripts/train.py --batch_size 4096 --num_workers 8
 
 # Point at a different experiment file
-python train.py --experiment configs/my_experiment.yml
-python train_gru_models.py --experiment configs/my_experiment.yml
+python scripts/train.py --experiment configs/my_experiment.yml
+python scripts/train_gru_models.py --experiment configs/my_experiment.yml
 
 # Run evaluation and generate plots
-python test.py
-python test_gru_models.py
+python scripts/test.py
+python scripts/test_gru_models.py
 ```
 
 Search is controlled from `configs/experiment.yml`:
@@ -94,11 +98,11 @@ If `search.enabled: false`, the model trains directly from the current config. I
 
 ## BaseModel Wrapper Path
 
-The wrapper path was added to make the GRU-family models usable through the abstract interface in `base_model.py`, while still reusing the original training/search infrastructure underneath.
+The wrapper path was added to make the GRU-family models usable through the abstract interface in `models/base_model.py`, while still reusing the original training/search infrastructure underneath.
 
 In practice this means:
 
-- `models.py` contains one wrapper class per GRU-family model
+- `models/gru_models.py` contains one wrapper class per GRU-family model
 - each wrapper still resolves the real builder and training step from `configs/registry.yml`
 - final training still goes through `Experiment.train(...)`
 - the wrapper path uses the BaseModel data split first, then builds the forecasting loaders on top of that split
@@ -106,8 +110,8 @@ In practice this means:
 Typical usage:
 
 ```bash
-python train_gru_models.py --experiment configs/experiment.yml
-python test_gru_models.py --run_name my_run
+python scripts/train_gru_models.py --experiment configs/experiment.yml
+python scripts/test_gru_models.py --run_name my_run
 ```
 
 Or in a notebook:
@@ -128,8 +132,8 @@ This is mainly intended for the GRU/baseline/hierarchical wrapper models. The or
 
 The two training paths handle search slightly differently:
 
-- `train.py` stays fully inside the original registry/data pipeline
-- `train_gru_models.py` uses the wrapper/BaseModel path for final training
+- `scripts/train.py` stays fully inside the original registry/data pipeline
+- `scripts/train_gru_models.py` uses the wrapper/BaseModel path for final training
 
 For the wrapper path, search is treated as a config-selection step:
 
@@ -439,7 +443,7 @@ Weights sum to 1 across all series. High-revenue items get proportionally more i
 
 ## Config Snapshotting and Reproducibility
 
-Every time you run `train.py` or `train_gru_models.py`, the current state of `experiment.yml` and all referenced model ymls are copied into `runs/run_name/configs/`. This means:
+Every time you run `scripts/train.py` or `scripts/train_gru_models.py`, the current state of `experiment.yml` and all referenced model ymls are copied into `runs/run_name/configs/`. This means:
 
 - Re-running `test.py` always uses the exact config that trained the model, even if you've edited the configs since
 - If hyperparameter search ran, the winning config is already merged into the run snapshot

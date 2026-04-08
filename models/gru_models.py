@@ -1,5 +1,5 @@
 # =============================================================================
-# models.py — GRU/Hierarchical model subclasses of BaseModel
+# gru_models.py — GRU/Hierarchical model subclasses of BaseModel
 # COMP0197 Applied Deep Learning
 #
 # Wrapper classes that expose the GRU-family models through the BaseModel
@@ -14,7 +14,6 @@
 # Existing entrypoints still work too.
 # =============================================================================
 
-import sys
 import math
 import json
 import pandas as pd
@@ -24,9 +23,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from torch.utils.data import DataLoader
 
-sys.path.append(str(Path(__file__).resolve().parent))
-
-from base_model import BaseModel
+from .base_model import BaseModel
 
 # ---------------------------------------------------------------------------
 # Shared training/search code used by the wrappers.
@@ -73,7 +70,7 @@ from utils.hyperparameter import staged_search
 # ---------------------------------------------------------------------------
 # Paths — mirror train.py exactly
 # ---------------------------------------------------------------------------
-PROJECT_DIR    = Path(__file__).resolve().parent
+PROJECT_DIR    = Path(__file__).resolve().parents[1]
 REGISTRY_PATH  = PROJECT_DIR / "configs" / "registry.yml"
 MODELS_CFG_DIR = PROJECT_DIR / "configs" / "models"
 

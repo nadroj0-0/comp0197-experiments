@@ -17,7 +17,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[0]))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from utils.experiment import Experiment
 from utils.config_loader import (
@@ -33,7 +33,7 @@ from utils.config_loader import (
 from utils.data import build_dataloaders, get_feature_cols
 from utils.common import save_json
 
-PROJECT_DIR     = Path(__file__).resolve().parent
+PROJECT_DIR     = Path(__file__).resolve().parents[1]
 EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
 REGISTRY_PATH   = PROJECT_DIR / "configs" / "registry.yml"
 MODELS_CFG_DIR  = PROJECT_DIR / "configs" / "models"

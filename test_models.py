@@ -51,7 +51,7 @@ def run_import_tests():
     print("\n── GROUP 1: Imports ──────────────────────────────────────────")
 
     def t_base_model():
-        from base_model import BaseModel
+        from models import BaseModel
         assert hasattr(BaseModel, "load_and_split_data")
         assert hasattr(BaseModel, "QUANTILES")
         assert hasattr(BaseModel, "PRED_LENGTH")
@@ -68,7 +68,7 @@ def run_import_tests():
         )
 
     def t_pipeline_imports():
-        # Check the main imports used by models.py
+        # Check the main imports used by models/gru_models.py
         from utils.data import build_dataloaders, get_feature_cols
         from utils.experiment import Experiment
         from utils.config_loader import (
@@ -81,8 +81,8 @@ def run_import_tests():
         from utils.network import build_baseline_gru, build_hierarchical_gru
         from utils.training_strategies import gru_step, quantile_gru_step
 
-    test("base_model.py imports cleanly", t_base_model)
-    test("models.py imports cleanly", t_models_module)
+    test("models/base_model.py imports cleanly", t_base_model)
+    test("models package imports cleanly", t_models_module)
     test("all 10 model classes importable", t_all_classes)
     test("all pipeline dependencies resolve", t_pipeline_imports)
 
@@ -100,7 +100,7 @@ def run_instantiation_tests():
         HierarchicalGRUDet, HierarchicalGRUProb, HierarchicalGRUNB,
         HierarchicalQuantileGRU, HierarchicalWQuantileGRU,
     )
-    from base_model import BaseModel
+    from models import BaseModel
 
     all_classes = [
         BaselineGRUDet, BaselineGRUProb, BaselineGRUNB,

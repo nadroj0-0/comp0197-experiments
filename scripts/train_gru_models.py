@@ -16,7 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[0]))
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from utils.config_loader import (
     load_experiment,
@@ -26,7 +26,7 @@ from utils.config_loader import (
 )
 from models import get_model_class, get_available_model_names
 
-PROJECT_DIR     = Path(__file__).resolve().parent
+PROJECT_DIR     = Path(__file__).resolve().parents[1]
 EXPERIMENT_PATH = PROJECT_DIR / "configs" / "experiment.yml"
 REGISTRY_PATH   = PROJECT_DIR / "configs" / "registry.yml"
 MODELS_CFG_DIR  = PROJECT_DIR / "configs" / "models"
