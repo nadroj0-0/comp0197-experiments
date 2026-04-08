@@ -1,4 +1,3 @@
-from torch.utils.data import DataLoader
 import torch
 from pathlib import Path
 from .common import *
@@ -11,26 +10,6 @@ def get_model_dir(exp_name, base_dir=None):
     model_dir = base_dir / "models" / exp_name
     model_dir.mkdir(parents=True, exist_ok=True)
     return model_dir
-
-def run_test_evaluation(model, test_dataset, batch_size, name, model_dir,config=None):
-    """
-    Complete test evaluation pipeline.
-    Builds test loader → evaluates model → attaches metrics → saves history.
-    Args:
-        model (torch.nn.Module)
-        test_dataset
-        batch_size (int)
-        history (dict)
-        experiment_name (str)
-        model_dir (Path)
-        config (dict)
-    Returns:
-        dict: test metrics
-    """
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    test_metrics = evaluate_test_set(model, test_loader)
-    history_path = save_history(test_metrics, name, "test", model, model_dir, config=config)
-    return test_metrics, history_path
 
 def evaluate_confidence(model, data_loader):
     """

@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 
 from .runtime import device
 
@@ -55,18 +54,6 @@ def load_model(dropout_prob: float, weights_path: Path) -> torch.nn.Module:
     return model
 
 
-def evaluate_test_set(model, test_loader):
-    from .training import evaluate_model
-
-    criterion = nn.MSELoss()
-    test_loss, test_acc, _, _ = evaluate_model(test_loader, model, criterion)
-    print("\nTest performance")
-    print(f"test_loss={test_loss:.4f}")
-    print(f"test_acc={test_acc:.4f}")
-    return {"test_loss": test_loss, "test_accuracy": test_acc}
-
-
 def save_json(data, path):
     with open(path, "w") as f:
         json.dump(data, f, indent=4)
-
