@@ -283,8 +283,8 @@ def evaluate_model(model_name: str, run_dir: Path,
     )
     per_item_mse = ((preds_orig - targets_orig) ** 2).mean(axis=1)
     per_item_mae = np.abs(preds_orig - targets_orig).mean(axis=1)
-    w_rmse = float(np.sqrt((item_weights * per_item_mse).mean()))
-    w_mae  = float((item_weights * per_item_mae).mean())
+    w_rmse = float(np.sqrt((item_weights * per_item_mse).sum()))
+    w_mae  = float((item_weights * per_item_mae).sum())
     print(f"  W-RMSE={w_rmse:.4f}  W-MAE={w_mae:.4f}")
     metrics_dict["w_rmse"] = w_rmse
     metrics_dict["w_mae"]  = w_mae

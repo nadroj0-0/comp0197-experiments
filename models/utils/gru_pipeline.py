@@ -19,6 +19,7 @@ from utils.configs.config_loader import (
 )
 from utils.data import WindowedM5Dataset, encode_hierarchy, get_feature_cols, get_vocab_sizes, set_seed
 from utils.experiment import Experiment
+from utils.runners.runner_utils import load_shared_data, prepare_model_context, select_model_loaders
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 MODELS_CFG_DIR = PROJECT_DIR / "configs" / "models"
@@ -150,38 +151,42 @@ def run_full_pipeline(self_model, model_name: str, run_name: str = None,
         run_name = model_name + "_run"
 
     run_dir = create_run_dir(PROJECT_DIR, run_name)
-    snapshot_configs(
-        run_dir=run_dir,
-        experiment_yml=str(PROJECT_DIR / "configs" / "experiment.yml"),
-        model_names=[model_name],
-        models_cfg_dir=MODELS_CFG_DIR,
-    )
     run_experiment_yml = run_dir / "configs" / "experiment.yml"
     run_model_yml = run_dir / "configs" / "models" / f"{model_name}.yml"
+    if not run_experiment_yml.exists() or not run_model_yml.exists():
+        snapshot_configs(
+            run_dir=run_dir,
+            experiment_yml=str(PROJECT_DIR / "configs" / "experiment.yml"),
+            model_names=[model_name],
+            models_cfg_dir=MODELS_CFG_DIR,
+        )
 
     if do_search:
         search_space = load_search_space(run_model_yml)
         if search_space:
-            from search import _load_search_data, search_model
+            from search import search_model
 
             exp_cfg = load_experiment(run_experiment_yml)
             exp_search = exp_cfg.get("search", {})
             registry = load_registry(REGISTRY_PATH)
             first_train_cfg = load_effective_train_config(exp_cfg, run_model_yml)
-            loaders = _load_search_data(exp_search, first_train_cfg)
-            model_cfg = load_model_config(run_model_yml)
-            model_type = model_cfg.get("model_type", "")
-            is_model_prob = bool(model_cfg.get("probabilistic", False))
-            is_model_nb = model_type in ("baseline_gru_nb", "hierarchical_gru_nb")
-
-            if is_model_nb:
-                tl, vl, st = loaders["train_loader_nb"], loaders["val_loader_nb"], loaders["stats_nb"]
-            elif model_type in ("baseline_wquantile_gru", "hierarchical_wquantile_gru"):
-                tl, vl, st = loaders["train_loader_wquantile"], loaders["val_loader_det"], loaders["stats_det"]
-            elif is_model_prob:
-                tl, vl, st = loaders["train_loader_gauss"], loaders["val_loader_gauss"], loaders["stats_gauss"]
-            else:
-                tl, vl, st = loaders["train_loader_det"], loaders["val_loader_det"], loaders["stats_det"]
+            loaders = load_shared_data(
+                mode="search",
+                exp_section=exp_search,
+                first_train_cfg=first_train_cfg,
+                include_test=False,
+            )
+            model_ctx = prepare_model_context(
+                model_name=model_name,
+                exp_cfg=exp_cfg,
+                run_dir=run_dir,
+                registry=registry,
+            )
+            routed = select_model_loaders(
+                model_ctx["model_type"],
+                model_ctx["probabilistic"],
+                loaders,
+            )
 
             search_model(
                 model_name=model_name,
@@ -189,9 +194,9 @@ def run_full_pipeline(self_model, model_name: str, run_name: str = None,
                 exp_cfg=exp_cfg,
                 exp_search=exp_search,
                 registry=registry,
-                train_loader=tl,
-                val_loader=vl,
-                stats=st,
+                train_loader=routed["train_loader"],
+                val_loader=routed["val_loader"],
+                stats=routed["stats"],
                 vocab_sizes=loaders.get("vocab_sizes", {}),
             )
             print(f"\n[models] Search detour complete for {model_name}")

@@ -1,12 +1,13 @@
 from pathlib import Path
 
 from utils.configs.config_loader import (
+    get_model_run_dir,
     load_effective_train_config,
     load_model_config,
     resolve_registry_entry,
 )
 from utils.data import build_dataloaders, get_feature_cols
-from utils.experiment import Experiment, get_model_run_dir
+from utils.experiment import Experiment
 
 
 def load_shared_data(
@@ -210,4 +211,3 @@ def build_preloaded_experiment(model_name: str, train_cfg: dict, model_dir: Path
         exp.test_dataset = routed["test_loader"]
     exp.preloaded = True
     return exp
-

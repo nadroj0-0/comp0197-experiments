@@ -232,52 +232,47 @@ def run_routing_tests():
     print("\n── GROUP 4: Loader routing logic ────────────────────────────")
 
     def t_run_full_pipeline_exists():
-        from models import _run_full_pipeline
+        from models.utils.gru_pipeline import run_full_pipeline
         import inspect
-        sig = inspect.signature(_run_full_pipeline)
+        sig = inspect.signature(run_full_pipeline)
         params = list(sig.parameters.keys())
+        assert "self_model" in params
         assert "model_name" in params
-        assert "is_nb" in params
-        assert "is_prob" in params
-        assert "model_type" in params
+        assert "run_name" in params
+        assert "do_search" in params
+        assert "include_weights" in params
 
-    def t_wquantile_model_types_correct():
+    def t_weighted_wrappers_enable_weights():
         from models import BaselineWQuantileGRU, HierarchicalWQuantileGRU
-        # Verify the model_type strings passed in run() match what train.py expects
-        import inspect
-        src_bwq = inspect.getsource(BaselineWQuantileGRU.run)
-        assert "baseline_wquantile_gru" in src_bwq
+        assert BaselineWQuantileGRU.include_weights is True
+        assert HierarchicalWQuantileGRU.include_weights is True
 
-        src_hwq = inspect.getsource(HierarchicalWQuantileGRU.run)
-        assert "hierarchical_wquantile_gru" in src_hwq
+    def t_unweighted_wrappers_disable_weights():
+        from models import (
+            BaselineGRUDet, BaselineGRUProb, BaselineGRUNB,
+            BaselineQuantileGRU, HierarchicalGRUDet, HierarchicalGRUProb,
+            HierarchicalGRUNB, HierarchicalQuantileGRU,
+        )
+        wrappers = [
+            BaselineGRUDet, BaselineGRUProb, BaselineGRUNB,
+            BaselineQuantileGRU, HierarchicalGRUDet, HierarchicalGRUProb,
+            HierarchicalGRUNB, HierarchicalQuantileGRU,
+        ]
+        for cls in wrappers:
+            assert cls.include_weights is False, f"{cls.__name__} should not use item weights"
 
-    def t_nb_flags_correct():
-        from models import BaselineGRUNB, HierarchicalGRUNB
-        import inspect
-        src_nb = inspect.getsource(BaselineGRUNB.run)
-        assert "is_nb=True" in src_nb
-
-        src_hnb = inspect.getsource(HierarchicalGRUNB.run)
-        assert "is_nb=True" in src_hnb
-
-    def t_prob_flags_correct():
-        from models import BaselineGRUProb, HierarchicalGRUProb
-        import inspect
-        src = inspect.getsource(BaselineGRUProb.run)
-        assert "is_prob=True" in src
-
-    def t_det_flags_correct():
-        from models import BaselineGRUDet, HierarchicalGRUDet
+    def t_wrapper_run_delegates_to_shared_pipeline():
+        from models import BaselineGRUDet
         import inspect
         src = inspect.getsource(BaselineGRUDet.run)
-        assert "is_nb=False" in src
-        assert "is_prob=False" in src
+        assert "run_full_pipeline" in src
+        assert "do_search=self._do_search" in src
+        assert "include_weights=self.include_weights" in src
 
-    test("_run_full_pipeline has correct signature", t_run_full_pipeline_exists)
-    test("wquantile model_type strings correct", t_wquantile_model_types_correct)
-    test("NB models pass is_nb=True", t_nb_flags_correct)
-    test("prob models pass is_prob=True", t_prob_flags_correct)
-    test("det models pass is_nb=False, is_prob=False", t_det_flags_correct)
+    test("run_full_pipeline has correct signature", t_run_full_pipeline_exists)
+    test("weighted wrappers enable item weights", t_weighted_wrappers_enable_weights)
+    test("unweighted wrappers disable item weights", t_unweighted_wrappers_disable_weights)
+    test("wrapper run() delegates to shared pipeline", t_wrapper_run_delegates_to_shared_pipeline)
 
 
 # =============================================================================
@@ -396,7 +391,7 @@ def run_smoke_test(model_name: str):
         import inspect
         src = inspect.getsource(m.run)
         # run() must assign self._exp or self.model
-        assert "_run_full_pipeline" in src
+        assert "run_full_pipeline" in src
 
     test(f"{model_name} run() completes end-to-end", t_run_completes)
     test(f"{model_name} run() stores _exp / model", t_model_attribute_set)
