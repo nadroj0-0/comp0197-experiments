@@ -1,0 +1,9 @@
+{
+  "model": "baseline_gru_prob",
+  "wspl": 0.4612084146396526,
+  "crps": 1.2820213057402383,
+  "coverage_error_50pct": 0.243163,
+  "coverage_error_80pct": 0.098771,
+  "coverage_error_90pct": 0.03868,
+  "coverage_error_95pct": 0.011391
+}

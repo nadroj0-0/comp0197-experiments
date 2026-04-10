@@ -519,7 +519,12 @@ def evaluate_predictions(self_model, model_name: str, run_name: str, preds_df: p
 
     output_dir = model_dir / "plots"
     output_dir.mkdir(exist_ok=True)
-    _plot_training_curves(hist_path, model_name, save_path=output_dir / f"{model_name}_training_curves.png")
+    if hist_path.exists():
+        _plot_training_curves(
+            hist_path,
+            model_name,
+            save_path=output_dir / f"{model_name}_training_curves.png",
+        )
 
     history_raw = (
         self_model.test_raw[

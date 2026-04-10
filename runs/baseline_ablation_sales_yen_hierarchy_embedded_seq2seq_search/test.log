@@ -1,0 +1,73 @@
+nohup: ignoring input
+Using device: cuda
+Using wrapper-based evaluation runner
+
+============================================================
+  BATCH EVALUATION — baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search
+  Models   : ['hierarchical_gru_det', 'hierarchical_gru_prob', 'hierarchical_quantile_gru']
+  Eval data: sampling=all | top_k=30490 | feature_set=sales_yen_hierarchy
+============================================================
+
+============================================================
+  Evaluating: hierarchical_gru_det
+============================================================
+Loaded cached data splits.
+Loaded cached data splits.
+[data] After hierarchy encoding : (59181090, 28)
+[predict] Saved predictions to /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/models/hierarchical_gru_det/hierarchical_gru_det_predictions.csv
+Finished model inference.
+Loaded cached data splits.
+  RMSE=2.2038  MAE=1.0974  MAPE=54.57%  R²=0.6336
+  W-RMSE=4.9724  W-MAE=2.3864
+  WSPL=0.9627  CRPS=2.3864  CovErr95=-0.9492
+Finished model evaluation.
+
+============================================================
+  Evaluating: hierarchical_gru_prob
+============================================================
+Loaded cached data splits.
+Loaded cached data splits.
+[data] After hierarchy encoding : (59181090, 28)
+[predict] Saved predictions to /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/models/hierarchical_gru_prob/hierarchical_gru_prob_predictions.csv
+Finished model inference.
+Loaded cached data splits.
+  RMSE=2.8272  MAE=1.2055  MAPE=59.32%  R²=0.3970
+  W-RMSE=8.4214  W-MAE=3.4496
+  WSPL=0.5543  CRPS=2.1936  CovErr95=-0.0037
+  Coverage(95%)=0.9463  Width=4.0860  CRPS=2.1936  QCRPS=0.4458
+Finished model evaluation.
+
+============================================================
+  Evaluating: hierarchical_quantile_gru
+============================================================
+Loaded cached data splits.
+Loaded cached data splits.
+[data] After hierarchy encoding : (59181090, 28)
+[predict] Saved predictions to /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/models/hierarchical_quantile_gru/hierarchical_quantile_gru_predictions.csv
+Finished model inference.
+Loaded cached data splits.
+  RMSE=2.2973  MAE=0.9700  MAPE=67.55%  R²=0.6018
+  W-RMSE=5.1305  W-MAE=2.3734
+  WSPL=0.4396  CRPS=1.1881  CovErr95=0.0135
+  Coverage(95%)=0.9635  Width=4.8436  CRPS=1.1881  QCRPS=0.3629
+Finished model evaluation.
+
+======================================================================
+  RESULTS SUMMARY
+======================================================================
+Model                         RMSE   W-RMSE      MAE    W-MAE       R²     CRPS
+--------------------------------------------------------------------------------
+hierarchical_gru_det        2.2038   4.9724   1.0974   2.3864   0.6336   2.3864
+hierarchical_gru_prob       2.8272   8.4214   1.2055   3.4496   0.3970   2.1936
+hierarchical_quantile_gru   2.2973   5.1305   0.9700   2.3734   0.6018   1.1881
+======================================================================
+
+  Combined metrics saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/all_test_metrics.json
+  Comparison CSV saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/model_comparison.csv
+Loaded cached data splits.
+  Saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/comparison_plots/comparison_HOBBIES_1_354_TX_3_evaluation.png
+  Saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/comparison_plots/comparison_HOBBIES_1_158_TX_3_evaluation.png
+  Saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/comparison_plots/comparison_FOODS_3_120_CA_3_evaluation.png
+  Comparison plots saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/comparison_plots
+
+  Done — evaluated 3/3 models

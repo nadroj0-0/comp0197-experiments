@@ -120,7 +120,11 @@ def run_batch_evaluation(run_name: str, project_dir: Path, registry_path: Path, 
         print(f"\n  Combined metrics saved: {out_path}")
 
         csv_path = run_dir / "model_comparison.csv"
-        fieldnames = list(all_results[0].keys())
+        fieldnames = []
+        for result in all_results:
+            for key in result.keys():
+                if key not in fieldnames:
+                    fieldnames.append(key)
         with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()

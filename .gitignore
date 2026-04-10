@@ -18,9 +18,17 @@ runs/*
 !runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq/**
 !runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_old_eval/
 !runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_old_eval/**
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/**
+!runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/
+!runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/**
 runs/**/*.pt
 runs/**/*_train_history.json
 runs/**/*_search.json
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/**/*.pt
+!runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/**/*_search.json
+!runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/**/*.pt
+!runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/**/*_search.json
 
 # Local archives and draft docs not needed for the repo
 configs.zip
