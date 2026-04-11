@@ -1,0 +1,9 @@
+{
+  "model": "linear",
+  "wspl": 1.604414,
+  "crps": 5.188051,
+  "coverage_error_50pct": -0.376648,
+  "coverage_error_80pct": -0.676648,
+  "coverage_error_90pct": -0.776648,
+  "coverage_error_95pct": -0.826648
+}

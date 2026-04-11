@@ -1,0 +1,9 @@
+{
+  "model": "baseline_gru_det",
+  "wspl": 0.9615447093022859,
+  "crps": 2.3108243139920175,
+  "coverage_error_50pct": -0.5,
+  "coverage_error_80pct": -0.8,
+  "coverage_error_90pct": -0.9,
+  "coverage_error_95pct": -0.95
+}

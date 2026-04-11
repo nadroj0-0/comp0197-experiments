@@ -1,0 +1,146 @@
+model_name: hierarchical_gru_prob
+model_type: hierarchical_gru
+probabilistic: true
+train_config:
+  autoregressive: false
+  feature_set: sales_yen_hierarchy
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.0010973994562387963
+    weight_decay: 0.00015350336171082206
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.3164366797379017
+  hidden: 224
+  layers: 2
+  dropout: 0.057102744979295975
+  embed_dim: 8
+  sigma_reg: 0.001560510943567201
+  split_protocol: yen_v1
+  weight_protocol: yen_v1
+  data_dir: ./data
+  sampling: all
+  top_k_series: 30490
+  seq_len: 28
+  horizon: 28
+  use_normalise: false
+  epochs: 60
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  batch_size: 2048
+  num_workers: 8
+  seed: 42
+  n_features: 14
+  vocab_sizes:
+    state_id_int: 3
+    store_id_int: 10
+    cat_id_int: 3
+    dept_id_int: 7
+  feature_index:
+    sales: 0
+    sell_price: 1
+    is_available: 2
+    wday: 3
+    month: 4
+    year: 5
+    snap_CA: 6
+    snap_TX: 7
+    snap_WI: 8
+    has_event: 9
+    state_id_int: 10
+    store_id_int: 11
+    cat_id_int: 12
+    dept_id_int: 13
+best_config:
+  split_protocol: yen_v1
+  weight_protocol: yen_v1
+  data_dir: ./data
+  sampling: all
+  top_k_series: 30490
+  feature_set: sales_yen_hierarchy
+  seq_len: 28
+  horizon: 28
+  autoregressive: false
+  use_normalise: false
+  epochs: 60
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  batch_size: 2048
+  num_workers: 8
+  seed: 42
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.0010973994562387963
+    weight_decay: 0.00015350336171082206
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.3164366797379017
+  hidden: 224
+  layers: 2
+  dropout: 0.057102744979295975
+  embed_dim: 8
+  sigma_reg: 0.001560510943567201
+  n_features: 14
+  vocab_sizes:
+    state_id_int: 3
+    store_id_int: 10
+    cat_id_int: 3
+    dept_id_int: 7
+  feature_index:
+    sales: 0
+    sell_price: 1
+    is_available: 2
+    wday: 3
+    month: 4
+    year: 5
+    snap_CA: 6
+    snap_TX: 7
+    snap_WI: 8
+    has_event: 9
+    state_id_int: 10
+    store_id_int: 11
+    cat_id_int: 12
+    dept_id_int: 13
+search_space:
+  optimiser_params.lr:
+  - 0.0003
+  - 0.0015
+  - log
+  optimiser_params.weight_decay:
+  - 1.0e-05
+  - 0.0005
+  - log
+  hidden:
+  - - 160
+    - 192
+    - 224
+    - 256
+  - null
+  - choice
+  layers:
+  - - 1
+    - 2
+  - null
+  - choice
+  dropout:
+  - 0.04
+  - 0.15
+  - uniform
+  embed_dim:
+  - - 6
+    - 8
+    - 10
+  - null
+  - choice
+  clip_grad_norm:
+  - 0.25
+  - 0.9
+  - uniform
+  sigma_reg:
+  - 0.0005
+  - 0.01
+  - log

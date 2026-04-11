@@ -1,0 +1,35 @@
+# hierarchical_gru_prob.yml — GRU with hierarchy embeddings, Gaussian NLL loss
+model_name: hierarchical_gru_prob
+model_type: hierarchical_gru
+probabilistic: true
+
+train_config:
+  autoregressive: false
+  feature_set: sales_yen_hierarchy
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 1.0
+  hidden: 128
+  layers: 2
+  dropout: 0.1
+  embed_dim: 8
+  sigma_reg: 0.001              # penalises mean sigma to prevent variance collapse
+
+best_config: {}
+
+# Tighter lr range — Gaussian NLL loss landscape more sensitive than MSE
+search_space:
+  optimiser_params.lr: [3.0e-4, 0.0015, log]
+  optimiser_params.weight_decay: [1.0e-5, 5.0e-4, log]
+  hidden: [[160, 192, 224, 256], null, choice]
+  layers: [[1, 2], null, choice]
+  dropout: [0.04, 0.15, uniform]
+  embed_dim: [[6, 8, 10], null, choice]
+  clip_grad_norm: [0.25, 0.9, uniform]
+  sigma_reg: [5.0e-4, 0.01, log]

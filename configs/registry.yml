@@ -1,0 +1,84 @@
+# =============================================================================
+# registry.yml — Maps model names to Python builders and training steps
+# COMP0197 Applied Deep Learning
+#
+# Edit this ONLY when adding a genuinely new architecture to network.py.
+# String names are resolved to actual callables at runtime by config_loader.py.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# BASELINE MODELS — vanilla GRU, different loss functions
+# ---------------------------------------------------------------------------
+
+baseline_gru_det:
+  builder: build_baseline_gru
+  training_step: gru_step
+  is_prob: false
+  is_nb: false
+
+baseline_gru_prob:
+  builder: build_baseline_prob_gru
+  training_step: prob_gru_step
+  is_prob: true
+  is_nb: false
+
+baseline_gru_nb:
+  builder: build_baseline_prob_gru_nb
+  training_step: prob_nb_step
+  is_prob: true
+  is_nb: true
+
+baseline_quantile_gru:
+  builder: build_baseline_quantile_gru
+  training_step: quantile_gru_step
+  is_prob: false
+  is_nb: false
+  is_quantile: true
+
+baseline_wquantile_gru:
+  builder: build_baseline_wquantile_gru
+  training_step: wquantile_gru_step
+  is_prob: false
+  is_nb: false
+  is_quantile: true
+
+# ---------------------------------------------------------------------------
+# HIERARCHICAL MODELS — GRU with learned hierarchy embeddings
+# Replaces raw integer hierarchy features with dense embedding lookups.
+# vocab_sizes is injected into cfg by train.py / search.py before builder call.
+# ---------------------------------------------------------------------------
+ 
+hierarchical_gru_det:
+  builder: build_hierarchical_gru
+  training_step: gru_step
+  is_prob: false
+  is_nb: false
+  is_quantile: false
+ 
+hierarchical_gru_prob:
+  builder: build_hierarchical_prob_gru
+  training_step: prob_gru_step
+  is_prob: true
+  is_nb: false
+  is_quantile: false
+ 
+hierarchical_gru_nb:
+  builder: build_hierarchical_prob_gru_nb
+  training_step: prob_nb_step
+  is_prob: true
+  is_nb: true
+  is_quantile: false
+ 
+hierarchical_quantile_gru:
+  builder: build_hierarchical_quantile_gru
+  training_step: quantile_gru_step
+  is_prob: false
+  is_nb: false
+  is_quantile: true
+ 
+hierarchical_wquantile_gru:
+  builder: build_hierarchical_wquantile_gru
+  training_step: wquantile_gru_step
+  is_prob: false
+  is_nb: false
+  is_quantile: true

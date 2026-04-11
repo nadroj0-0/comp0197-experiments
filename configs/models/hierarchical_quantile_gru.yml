@@ -1,0 +1,33 @@
+# hierarchical_quantile_gru.yml — GRU with hierarchy embeddings, pinball loss (unweighted)
+model_name: hierarchical_quantile_gru
+model_type: hierarchical_quantile_gru
+probabilistic: false
+
+train_config:
+  autoregressive: false
+  feature_set: sales_yen_hierarchy
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.00117
+    weight_decay: 0.000235
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.585
+  hidden: 208
+  layers: 1
+  dropout: 0.058
+  embed_dim: 6
+  quantiles: [0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.975]
+
+best_config: {}
+
+search_space:
+  optimiser_params.lr: [5.0e-4, 0.002, log]
+  optimiser_params.weight_decay: [1.0e-5, 5.0e-4, log]
+  hidden: [[160, 192, 224, 256], null, choice]
+  layers: [[1, 2], null, choice]
+  dropout: [0.04, 0.15, uniform]
+  embed_dim: [[6, 8, 10], null, choice]
+  clip_grad_norm: [0.4, 1.0, uniform]

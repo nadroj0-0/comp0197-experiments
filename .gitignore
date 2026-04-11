@@ -1,0 +1,22 @@
+data/raw_split.pkl
+data/*.csv
+data/
+lightning_logs/
+
+models/*.csv
+
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+env/
+.venv/
+.ipynb_checkpoints/
+
+# --- IDE & OS ---
+.vscode/
+.idea/
+.DS_Store
+.Rhistory
+Thumbs.db

@@ -1,0 +1,33 @@
+# hierarchical_gru_nb.yml — GRU with hierarchy embeddings, Negative Binomial NLL loss
+model_name: hierarchical_gru_nb
+model_type: hierarchical_gru_nb
+probabilistic: true
+
+train_config:
+  autoregressive: true
+  feature_set: sales_yen_hierarchy
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.0005
+    weight_decay: 0.001
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.5           # tighter — NB NLL most numerically unstable
+  hidden: 128
+  layers: 2
+  dropout: 0.1
+  embed_dim: 8
+
+best_config: {}
+
+# Tightest lr + strongest wd — NB NLL most unstable, alpha can collapse
+search_space:
+  optimiser_params.lr: [2.0e-4, 8.0e-4, log]
+  optimiser_params.weight_decay: [1.0e-5, 0.001, log]
+  hidden: [[160, 192, 224], null, choice]
+  layers: [[1, 2], null, choice]
+  dropout: [0.04, 0.12, uniform]
+  embed_dim: [[6, 8, 10], null, choice]
+  clip_grad_norm: [0.25, 0.7, uniform]

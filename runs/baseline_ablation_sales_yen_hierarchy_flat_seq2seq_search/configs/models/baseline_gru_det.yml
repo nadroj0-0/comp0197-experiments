@@ -1,0 +1,132 @@
+model_name: baseline_gru_det
+model_type: baseline_gru
+probabilistic: false
+train_config:
+  autoregressive: false
+  feature_set: sales_yen_hierarchy
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.0006903126307234233
+    weight_decay: 0.0001053929989984129
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.7535594103255452
+  hidden: 96
+  layers: 2
+  dropout: 0.0330660933061045
+  split_protocol: yen_v1
+  weight_protocol: yen_v1
+  data_dir: ./data
+  sampling: all
+  top_k_series: 30490
+  seq_len: 28
+  horizon: 28
+  use_normalise: false
+  epochs: 60
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  batch_size: 2048
+  num_workers: 8
+  seed: 42
+  n_features: 14
+  vocab_sizes:
+    state_id_int: 3
+    store_id_int: 10
+    cat_id_int: 3
+    dept_id_int: 7
+  feature_index:
+    sales: 0
+    sell_price: 1
+    is_available: 2
+    wday: 3
+    month: 4
+    year: 5
+    snap_CA: 6
+    snap_TX: 7
+    snap_WI: 8
+    has_event: 9
+    state_id_int: 10
+    store_id_int: 11
+    cat_id_int: 12
+    dept_id_int: 13
+best_config:
+  split_protocol: yen_v1
+  weight_protocol: yen_v1
+  data_dir: ./data
+  sampling: all
+  top_k_series: 30490
+  feature_set: sales_yen_hierarchy
+  seq_len: 28
+  horizon: 28
+  autoregressive: false
+  use_normalise: false
+  epochs: 60
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.0005
+  batch_size: 2048
+  num_workers: 8
+  seed: 42
+  optimiser: adamw
+  optimiser_params:
+    lr: 0.0006903126307234233
+    weight_decay: 0.0001053929989984129
+  scheduler: plateau
+  scheduler_params:
+    patience: 5
+    factor: 0.5
+  clip_grad_norm: 0.7535594103255452
+  hidden: 96
+  layers: 2
+  dropout: 0.0330660933061045
+  n_features: 14
+  vocab_sizes:
+    state_id_int: 3
+    store_id_int: 10
+    cat_id_int: 3
+    dept_id_int: 7
+  feature_index:
+    sales: 0
+    sell_price: 1
+    is_available: 2
+    wday: 3
+    month: 4
+    year: 5
+    snap_CA: 6
+    snap_TX: 7
+    snap_WI: 8
+    has_event: 9
+    state_id_int: 10
+    store_id_int: 11
+    cat_id_int: 12
+    dept_id_int: 13
+search_space:
+  optimiser_params.lr:
+  - 0.0005
+  - 0.002
+  - log
+  optimiser_params.weight_decay:
+  - 1.0e-05
+  - 0.0005
+  - log
+  hidden:
+  - - 64
+    - 96
+    - 128
+    - 160
+  - null
+  - choice
+  layers:
+  - - 1
+    - 2
+  - null
+  - choice
+  dropout:
+  - 0.0
+  - 0.15
+  - uniform
+  clip_grad_norm:
+  - 0.4
+  - 1.0
+  - uniform

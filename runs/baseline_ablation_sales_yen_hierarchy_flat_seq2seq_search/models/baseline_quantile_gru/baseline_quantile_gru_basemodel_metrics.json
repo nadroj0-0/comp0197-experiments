@@ -1,0 +1,9 @@
+{
+  "model": "baseline_quantile_gru",
+  "wspl": 0.45972372519788607,
+  "crps": 1.2877415258835785,
+  "coverage_error_50pct": -0.130942,
+  "coverage_error_80pct": -0.199683,
+  "coverage_error_90pct": -0.060843,
+  "coverage_error_95pct": -0.062776
+}

@@ -1,0 +1,73 @@
+nohup: ignoring input
+Using device: cuda
+Using wrapper-based evaluation runner
+
+============================================================
+  BATCH EVALUATION — baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search
+  Models   : ['baseline_gru_det', 'baseline_gru_prob', 'baseline_quantile_gru']
+  Eval data: sampling=all | top_k=30490 | feature_set=sales_yen_hierarchy
+============================================================
+
+============================================================
+  Evaluating: baseline_gru_det
+============================================================
+Loaded cached data splits.
+Loaded cached data splits.
+[data] After hierarchy encoding : (59181090, 28)
+[predict] Saved predictions to /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/models/baseline_gru_det/baseline_gru_det_predictions.csv
+Finished model inference.
+Loaded cached data splits.
+  RMSE=2.1642  MAE=1.1003  MAPE=55.98%  R²=0.6466
+  W-RMSE=4.6983  W-MAE=2.3108
+  WSPL=0.9615  CRPS=2.3108  CovErr95=-0.9500
+Finished model evaluation.
+
+============================================================
+  Evaluating: baseline_gru_prob
+============================================================
+Loaded cached data splits.
+Loaded cached data splits.
+[data] After hierarchy encoding : (59181090, 28)
+[predict] Saved predictions to /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/models/baseline_gru_prob/baseline_gru_prob_predictions.csv
+Finished model inference.
+Loaded cached data splits.
+  RMSE=2.2992  MAE=1.0863  MAPE=57.76%  R²=0.6011
+  W-RMSE=5.4138  W-MAE=2.4955
+  WSPL=0.4612  CRPS=1.2820  CovErr95=0.0114
+  Coverage(95%)=0.9614  Width=4.5514  CRPS=1.2820  QCRPS=0.3944
+Finished model evaluation.
+
+============================================================
+  Evaluating: baseline_quantile_gru
+============================================================
+Loaded cached data splits.
+Loaded cached data splits.
+[data] After hierarchy encoding : (59181090, 28)
+[predict] Saved predictions to /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/models/baseline_quantile_gru/baseline_quantile_gru_predictions.csv
+Finished model inference.
+Loaded cached data splits.
+  RMSE=2.3746  MAE=1.0276  MAPE=76.28%  R²=0.5746
+  W-RMSE=5.7945  W-MAE=2.5769
+  WSPL=0.4597  CRPS=1.2877  CovErr95=-0.0628
+  Coverage(95%)=0.8872  Width=5.6067  CRPS=1.2877  QCRPS=0.3847
+Finished model evaluation.
+
+======================================================================
+  RESULTS SUMMARY
+======================================================================
+Model                         RMSE   W-RMSE      MAE    W-MAE       R²     CRPS
+--------------------------------------------------------------------------------
+baseline_gru_det            2.1642   4.6983   1.1003   2.3108   0.6466   2.3108
+baseline_gru_prob           2.2992   5.4138   1.0863   2.4955   0.6011   1.2820
+baseline_quantile_gru       2.3746   5.7945   1.0276   2.5769   0.5746   1.2877
+======================================================================
+
+  Combined metrics saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/all_test_metrics.json
+  Comparison CSV saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/model_comparison.csv
+Loaded cached data splits.
+  Saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/comparison_plots/comparison_HOBBIES_1_354_TX_3_evaluation.png
+  Saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/comparison_plots/comparison_HOBBIES_1_158_TX_3_evaluation.png
+  Saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/comparison_plots/comparison_FOODS_3_120_CA_3_evaluation.png
+  Comparison plots saved: /workspace/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_flat_seq2seq_search/comparison_plots
+
+  Done — evaluated 3/3 models
