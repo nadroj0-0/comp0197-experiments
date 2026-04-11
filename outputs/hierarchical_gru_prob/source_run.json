@@ -1,0 +1,5 @@
+{
+  "run_name": "baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search",
+  "model_name": "hierarchical_gru_prob",
+  "source_dir": "/workspace/tmp/comp0197-experiments/runs/baseline_ablation_sales_yen_hierarchy_embedded_seq2seq_search/models/hierarchical_gru_prob"
+}

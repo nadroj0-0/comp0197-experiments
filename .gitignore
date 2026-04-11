@@ -1,6 +1,6 @@
 data/raw_split.pkl
 data/*.csv
-data/
+/data/
 lightning_logs/
 
 models/*.csv
